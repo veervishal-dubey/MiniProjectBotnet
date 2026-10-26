@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-main: #F9F9F7;
+    --surface: #FFFFFF;
+    --text-primary: #16191D;
+    --text-muted: #616C77;
+    --brand-forest: #1C3B2C;
+    --border-color: #E2E5DF;
+  }
+
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum";
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Accessible focus outlines */
+  :focus-visible {
+    outline: 2px solid #284E3A;
+    outline-offset: 2px;
+  }
+}
+
+/* Custom subtle scrollbars for high-density tables */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F4F5F1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D5D8D2;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #A9B0A5;
+}
+
+/* Print and utility styles */
+@media print {
+  aside, nav {
+    display: none !important;
+  }
+}
