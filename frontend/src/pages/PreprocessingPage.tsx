@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useOutletContext } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Sliders,
   Check,
@@ -26,12 +26,14 @@ import { useToast } from '@/components/ui/Toast';
 import { storage } from '@/lib/storage';
 import { Dataset } from '@/types/dataset';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { useActiveDataset } from '@/contexts/ActiveDatasetContext';
 import { fetchWorkspaceDatasets } from '@/lib/datasetService';
 import {
   executePreprocessingApi,
   downloadProcessedDatasetBlob,
   PreprocessingReportDto,
 } from '@/lib/backendApi';
+import { ActiveDatasetSelector } from '@/components/common/ActiveDatasetSelector';
 import {
   PreprocessingConfig,
   PreprocessingValidationSummary,
@@ -43,10 +45,11 @@ import {
 } from '@/types/preprocessing';
 
 export const PreprocessingPage: React.FC = () => {
-  const { isDemoMode } = useOutletContext<{ isDemoMode: boolean }>();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { success, error, info } = useToast();
   const { workspace } = useWorkspace();
+  const { activeDatasetId } = useActiveDataset();
 
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>('');
@@ -77,12 +80,7 @@ export const PreprocessingPage: React.FC = () => {
     let isMounted = true;
 
     async function loadAllDatasets() {
-      if (isDemoMode) {
-        const demoList = storage.getDatasets(true);
-        if (!isMounted) return;
-        setDatasets(demoList);
-        updateSelected(demoList);
-      } else if (workspace?.id) {
+      if (workspace?.id) {
         setIsLoadingDatasets(true);
         try {
           const remoteList = await fetchWorkspaceDatasets(workspace.id);
@@ -118,6 +116,8 @@ export const PreprocessingPage: React.FC = () => {
       const paramId = searchParams.get('dataset');
       if (paramId && list.some(d => d.id === paramId)) {
         setSelectedDatasetId(paramId);
+      } else if (activeDatasetId && list.some(d => d.id === activeDatasetId)) {
+        setSelectedDatasetId(activeDatasetId);
       } else if (list.length > 0) {
         setSelectedDatasetId(prev => (prev && list.some(d => d.id === prev) ? prev : list[0].id));
       } else {
@@ -131,11 +131,17 @@ export const PreprocessingPage: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [isDemoMode, workspace?.id, searchParams]);
+  }, [workspace?.id, searchParams, activeDatasetId]);
 
 
   // When selected dataset changes, populate features and target
   const currentDataset = datasets.find(d => d.id === selectedDatasetId);
+
+  useEffect(() => {
+    if (activeDatasetId && datasets.some(d => d.id === activeDatasetId)) {
+      setSelectedDatasetId(activeDatasetId);
+    }
+  }, [activeDatasetId, datasets]);
 
   useEffect(() => {
     if (currentDataset) {
@@ -228,8 +234,8 @@ export const PreprocessingPage: React.FC = () => {
     setJobsHistory(prev => [newJob, ...prev]);
 
     success(
-      'Preprocessing Pipeline Staged',
-      `Configuration saved for ${currentDataset.name}. Ready for FastAPI scikit-learn pipeline execution.`
+      'Preprocessing Configuration Saved',
+      `Configuration saved for ${currentDataset.name}. Persisted locally for pipeline execution.`
     );
   };
 
@@ -330,46 +336,16 @@ export const PreprocessingPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <DisclaimerBanner
-        type={isDemoMode ? 'demo' : undefined}
-        message="Transformations (RobustScaler, Imputation, OneHot) execute on the FastAPI backend without data leakage. Transformations are fitted strictly on X_train."
+        type="info"
+        message="Training Preprocessing Pipeline: Configures stratified splits (Train/Val/Test) and fits transformations (RobustScaler, Imputation, OneHot) strictly on X_train to prevent data leakage. Note: Real-time inference with the trained Centralized MLP operates on the fixed 39-feature contract defined in feature_columns.joblib."
       />
 
-      {/* Dataset Selection Bar */}
-      <Card className="p-4 sm:p-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded bg-surface border border-border flex items-center justify-center text-forest-800 shadow-subtle">
-              <Database className="w-5 h-5" />
-            </div>
-            <div>
-              <label htmlFor="dataset-select" className="block text-xs font-semibold text-charcoal-500 uppercase tracking-wider">
-                Active Dataset Source
-              </label>
-              <select
-                id="dataset-select"
-                value={selectedDatasetId}
-                onChange={e => setSelectedDatasetId(e.target.value)}
-                className="mt-1 text-sm font-semibold text-charcoal-900 bg-transparent border-0 p-0 focus:ring-0 cursor-pointer"
-              >
-                {datasets.map(d => (
-                  <option key={d.id} value={d.id}>
-                    {d.name} ({d.rowCount.toLocaleString()} flows, {d.columnCount} cols)
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 text-xs font-mono">
-            <Badge variant="sage">
-              Target: {currentDataset?.labelColumn || 'label'}
-            </Badge>
-            <Badge variant="neutral">
-              {currentDataset?.columns.length || 0} Total Columns
-            </Badge>
-          </div>
-        </div>
-      </Card>
+      {/* Persistent Global Active Dataset Selector */}
+      <ActiveDatasetSelector
+        onDatasetChanged={d => {
+          if (d) setSelectedDatasetId(d.id);
+        }}
+      />
 
       {/* Pipeline Configurator Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -631,7 +607,7 @@ export const PreprocessingPage: React.FC = () => {
                   disabled={isExecuting || !currentDataset}
                   leftIcon={<Sliders className="w-3.5 h-3.5" />}
                 >
-                  Stage Parameter Artifact Locally
+                  Save Preprocessing Configuration
                 </Button>
               </div>
               <p className="text-[11px] text-charcoal-400 text-center leading-tight">
@@ -826,7 +802,18 @@ export const PreprocessingPage: React.FC = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-border-subtle font-sans">
+            <div className="flex items-center justify-between gap-2 pt-3 border-t border-border-subtle font-sans">
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  setIsReportModalOpen(false);
+                  navigate('/detection');
+                }}
+                rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
+              >
+                Proceed to Flow Detection
+              </Button>
               <Button size="sm" variant="outline" onClick={() => setIsReportModalOpen(false)}>
                 Close
               </Button>

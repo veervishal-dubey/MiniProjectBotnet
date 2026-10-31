@@ -4,6 +4,7 @@ import { ToastProvider } from '@/components/ui/Toast';
 import { BackendHealthProvider } from '@/contexts/BackendHealthContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { WorkspaceProvider } from '@/contexts/WorkspaceContext';
+import { ActiveDatasetProvider } from '@/contexts/ActiveDatasetContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
 
@@ -28,40 +29,42 @@ export const App: React.FC = () => {
       <BackendHealthProvider>
         <AuthProvider>
           <WorkspaceProvider>
-            <BrowserRouter>
-          <Routes>
-            {/* Public Landing & Authentication Pages */}
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/signup" element={<SignupPage />} />
-            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <ActiveDatasetProvider>
+              <BrowserRouter>
+                <Routes>
+                  {/* Public Landing & Authentication Pages */}
+                  <Route path="/" element={<LandingPage />} />
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="/signup" element={<SignupPage />} />
+                  <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                  <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-            {/* Core Protected Research Platform Shell */}
-            <Route
-              element={
-                <ProtectedRoute>
-                  <AppLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/datasets" element={<DatasetsPage />} />
-              <Route path="/preprocessing" element={<PreprocessingPage />} />
-              <Route path="/models" element={<ModelsPage />} />
-              <Route path="/federated-learning" element={<FederatedPage />} />
-              <Route path="/detection" element={<DetectionPage />} />
-              <Route path="/evaluation" element={<EvaluationPage />} />
-              <Route path="/logs" element={<LogsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Route>
+                  {/* Core Protected Research Platform Shell */}
+                  <Route
+                    element={
+                      <ProtectedRoute>
+                        <AppLayout />
+                      </ProtectedRoute>
+                    }
+                  >
+                    <Route path="/dashboard" element={<DashboardPage />} />
+                    <Route path="/datasets" element={<DatasetsPage />} />
+                    <Route path="/preprocessing" element={<PreprocessingPage />} />
+                    <Route path="/models" element={<ModelsPage />} />
+                    <Route path="/federated-learning" element={<FederatedPage />} />
+                    <Route path="/detection" element={<DetectionPage />} />
+                    <Route path="/evaluation" element={<EvaluationPage />} />
+                    <Route path="/logs" element={<LogsPage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
+                  </Route>
 
-            {/* Catch-all redirect */}
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </BrowserRouter>
-        </WorkspaceProvider>
-      </AuthProvider>
+                  {/* Catch-all redirect */}
+                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                </Routes>
+              </BrowserRouter>
+            </ActiveDatasetProvider>
+          </WorkspaceProvider>
+        </AuthProvider>
       </BackendHealthProvider>
     </ToastProvider>
   );

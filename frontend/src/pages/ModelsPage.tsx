@@ -35,12 +35,12 @@ import {
   fetchWorkspaceModelRuns,
   mapDatabaseRowToModel,
 } from '@/lib/modelService';
-import { DEMO_MODELS } from '@/api/mockData';
-import { ModelItem, ModelArchitecture, ModelParadigm } from '@/types/model';
+import { ModelItem, ModelParadigm } from '@/types/model';
 import { Dataset } from '@/types/dataset';
+import { apiClient } from '@/api/client';
+import { ActiveDatasetSelector } from '@/components/common/ActiveDatasetSelector';
 
 export const ModelsPage: React.FC = () => {
-  const { isDemoMode } = useOutletContext<{ isDemoMode: boolean }>();
   const { user } = useAuth();
   const { workspace } = useWorkspace();
   const { info } = useToast();
@@ -48,7 +48,7 @@ export const ModelsPage: React.FC = () => {
   const [models, setModels] = useState<ModelItem[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [selectedModel, setSelectedModel] = useState<ModelItem | null>(null);
-  const [filterParadigm, setFilterParadigm] = useState<'all' | ModelParadigm | 'live' | 'demo'>('all');
+  const [filterParadigm, setFilterParadigm] = useState<'all' | ModelParadigm>('all');
   const [isTrainModalOpen, setIsTrainModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -77,52 +77,54 @@ export const ModelsPage: React.FC = () => {
           liveRuns = await fetchWorkspaceModelRuns(workspace.id);
         } catch (runErr: any) {
           console.warn('Error fetching live model runs:', runErr);
-          setErrorMsg(runErr.message || 'Failed to query public.model_runs from Supabase.');
         }
       }
 
-      // 3. Assemble model list based on Demo Mode setting
-      if (isDemoMode) {
-        // In Demo Mode, display both genuine runs and benchmark reference baselines
-        setModels([...liveRuns, ...DEMO_MODELS]);
-      } else {
-        // In production/workspace mode, display exclusively verified persisted records
-        setModels(liveRuns);
+      // 3. Fetch genuine trained models from FastAPI backend
+      let backendModels: ModelItem[] = [];
+      try {
+        const { data: bModels } = await apiClient.getModels();
+        backendModels = bModels || [];
+      } catch (bmErr) {
+        console.warn('Could not fetch backend models:', bmErr);
       }
+
+      const existingIds = new Set(liveRuns.map(m => m.id));
+      const combinedGenuines = [...liveRuns];
+      for (const bm of backendModels) {
+        if (!existingIds.has(bm.id)) {
+          combinedGenuines.push(bm);
+          existingIds.add(bm.id);
+        }
+      }
+
+      // 4. Genuine model list exclusively from active checkpoints and persistent runs
+      setModels(combinedGenuines);
     } catch (err: any) {
       console.error('Failed to load model registry:', err);
       setErrorMsg(err.message || 'An unexpected error occurred while loading the model registry.');
     } finally {
       setIsLoading(false);
     }
-  }, [isDemoMode, workspace?.id]);
+  }, [workspace?.id]);
 
   useEffect(() => {
     loadData();
-    window.addEventListener('sentinelfl:demomode-change', loadData);
-    return () => window.removeEventListener('sentinelfl:demomode-change', loadData);
   }, [loadData]);
 
   const filteredModels = models.filter(m => {
     if (filterParadigm === 'all') return true;
-    if (filterParadigm === 'live') return !m.isDemoSample;
-    if (filterParadigm === 'demo') return m.isDemoSample;
     return m.paradigm === filterParadigm;
   });
-
-  const liveRunsCount = models.filter(m => !m.isDemoSample).length;
-  const demoRunsCount = models.filter(m => m.isDemoSample).length;
 
   return (
     <div className="space-y-6">
       <DisclaimerBanner
-        type={isDemoMode ? 'demo' : undefined}
-        message={
-          isDemoMode
-            ? 'Demo Mode Active: Displaying synthetic benchmark models alongside any live runs. Turn off Demo Mode to view exclusively verified database records from public.model_runs.'
-            : 'Live Model Registry: Connected to Supabase public.model_runs. Centralized ML and Federated Learning algorithms are developed independently by teammate per the ML/FL contract.'
-        }
+        message="Live Model Registry: Connected to FastAPI backend and trained checkpoints. Showcasing teammates' genuine PyTorch MLP baseline and collaborative FedAvg global models."
       />
+
+      {/* Persistent Global Active Dataset Selector */}
+      <ActiveDatasetSelector />
 
       {/* Error state banner */}
       {errorMsg && (
@@ -170,24 +172,6 @@ export const ModelsPage: React.FC = () => {
           >
             Federated Global
           </Button>
-          {isDemoMode && (
-            <Button
-              size="sm"
-              variant={filterParadigm === 'live' ? 'primary' : 'outline'}
-              onClick={() => setFilterParadigm('live')}
-            >
-              Live Runs ({liveRunsCount})
-            </Button>
-          )}
-          {isDemoMode && (
-            <Button
-              size="sm"
-              variant={filterParadigm === 'demo' ? 'primary' : 'outline'}
-              onClick={() => setFilterParadigm('demo')}
-            >
-              Benchmark Demos ({demoRunsCount})
-            </Button>
-          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -260,24 +244,29 @@ export const ModelsPage: React.FC = () => {
                     : undefined;
                   const hasLat = typeof latVal === 'number';
 
-                  // Status badge variant
+                  // Status badge variant matching the 5 strict states
                   let statusVariant: 'forest' | 'amber' | 'neutral' | 'red' | 'sage' = 'neutral';
-                  let statusLabel = (model.rawStatus || model.status).toUpperCase();
-                  if (model.status === 'trained') {
+                  const raw = (model.rawStatus || model.status || '').toLowerCase();
+                  let statusLabel = raw.toUpperCase();
+
+                  if (raw.includes('available') || raw === 'ready') {
                     statusVariant = 'forest';
-                    statusLabel = 'COMPLETED';
-                  } else if (model.status === 'training') {
-                    statusVariant = 'amber';
-                    statusLabel = 'RUNNING';
-                  } else if (model.status === 'staged') {
+                    statusLabel = 'AVAILABLE FOR INFERENCE';
+                  } else if (raw === 'validated') {
+                    statusVariant = 'forest';
+                    statusLabel = 'VALIDATED';
+                  } else if (raw === 'trained' || raw === 'completed') {
                     statusVariant = 'sage';
-                    statusLabel = 'STAGED';
-                  } else if (model.status === 'failed') {
-                    statusVariant = 'red';
-                    statusLabel = 'FAILED';
-                  } else if (model.status === 'archived') {
+                    statusLabel = 'TRAINED';
+                  } else if (raw === 'registered' || raw === 'staged') {
                     statusVariant = 'neutral';
-                    statusLabel = 'ARCHIVED';
+                    statusLabel = 'REGISTERED';
+                  } else if (raw.includes('fail') || raw.includes('unavail') || raw === 'error') {
+                    statusVariant = 'red';
+                    statusLabel = 'ARTIFACT UNAVAILABLE';
+                  } else if (raw === 'training' || raw === 'running') {
+                    statusVariant = 'amber';
+                    statusLabel = 'TRAINING';
                   }
 
                   return (
@@ -301,11 +290,6 @@ export const ModelsPage: React.FC = () => {
                         >
                           {model.paradigm === 'federated_global' ? 'Federated Global' : 'Centralized'}
                         </Badge>
-                        {model.isDemoSample && (
-                          <Badge variant="demo" size="sm" className="ml-1.5">
-                            Demo
-                          </Badge>
-                        )}
                       </td>
                       <td className="py-3 px-3 font-sans text-charcoal-700 min-w-[150px] max-w-[220px]">
                         <span
@@ -316,7 +300,7 @@ export const ModelsPage: React.FC = () => {
                         </span>
                       </td>
                       <td className="py-3 px-3 min-w-[85px] whitespace-nowrap text-charcoal-800">
-                        {hasAcc ? `${(model.metrics.accuracy! * 100).toFixed(1)}%` : '—'}
+                        {hasAcc ? `${(model.metrics.accuracy! * 100).toFixed(1)}%` : 'N/A'}
                       </td>
                       <td className="py-3 px-3 min-w-[85px] whitespace-nowrap">
                         {hasF1 ? (
@@ -324,11 +308,11 @@ export const ModelsPage: React.FC = () => {
                             {(f1Val! * 100).toFixed(1)}%
                           </span>
                         ) : (
-                          <span className="text-charcoal-400 font-normal">—</span>
+                          <span className="text-charcoal-400 font-normal">N/A</span>
                         )}
                       </td>
                       <td className="py-3 px-3 min-w-[85px] whitespace-nowrap text-charcoal-700">
-                        {hasLat ? `${latVal} ms` : '—'}
+                        {hasLat ? `${latVal} ms` : 'N/A'}
                       </td>
                       <td className="py-3 px-3 font-sans min-w-[105px] whitespace-nowrap">
                         <Badge variant={statusVariant} size="sm" dot>
@@ -336,17 +320,34 @@ export const ModelsPage: React.FC = () => {
                         </Badge>
                       </td>
                       <td className="py-3 px-3 text-right font-sans min-w-[80px] whitespace-nowrap">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedModel(model);
-                          }}
-                        >
-                          Inspect
-                        </Button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {(raw.includes('available') || raw === 'trained' || raw === 'completed') && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs px-2 text-forest-800 hover:bg-forest-50"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                window.location.assign(`/detection?model=${model.id}`);
+                              }}
+                              title="Run inference using this model"
+                            >
+                              <Play className="w-3.5 h-3.5 mr-1 fill-current" />
+                              Run Inference
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedModel(model);
+                            }}
+                          >
+                            Inspect
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -362,11 +363,7 @@ export const ModelsPage: React.FC = () => {
         isOpen={!!selectedModel}
         onClose={() => setSelectedModel(null)}
         title={selectedModel?.name || 'Model Details'}
-        subtitle={
-          selectedModel?.isDemoSample
-            ? 'Reference Baseline (Demo Mode Sample)'
-            : `Persisted Run ID: ${selectedModel?.id || ''}`
-        }
+        subtitle={`Persisted Run ID: ${selectedModel?.id || ''}`}
         width="lg"
       >
         {selectedModel && (
@@ -375,11 +372,9 @@ export const ModelsPage: React.FC = () => {
             <div className="p-3.5 rounded-lg bg-surface-subtle border border-border space-y-2 font-sans">
               <div className="flex justify-between items-center">
                 <span className="text-charcoal-500 font-medium">Record Source:</span>
-                {selectedModel.isDemoSample ? (
-                  <Badge variant="demo" size="sm">Static Benchmark Demo</Badge>
-                ) : (
-                  <Badge variant="forest" size="sm">Supabase public.model_runs</Badge>
-                )}
+                <Badge variant="forest" size="sm">
+                  {selectedModel.paradigm === 'centralized' ? 'Saved Checkpoint Baseline' : 'Verified Model Run'}
+                </Badge>
               </div>
               <div className="flex justify-between items-center font-mono text-[11px]">
                 <span className="text-charcoal-500">Run Identifier:</span>
@@ -459,7 +454,7 @@ export const ModelsPage: React.FC = () => {
                   <span className="text-base font-bold text-forest-800">
                     {typeof (selectedModel.metrics?.f1_score ?? selectedModel.metrics?.f1Score) === 'number'
                       ? `${(Number(selectedModel.metrics?.f1_score ?? selectedModel.metrics?.f1Score) * 100).toFixed(2)}%`
-                      : '—'}
+                      : 'N/A'}
                   </span>
                 </div>
                 <div>
@@ -467,7 +462,7 @@ export const ModelsPage: React.FC = () => {
                   <span className="text-base font-bold text-charcoal-900">
                     {typeof selectedModel.metrics?.accuracy === 'number'
                       ? `${(selectedModel.metrics.accuracy * 100).toFixed(2)}%`
-                      : '—'}
+                      : 'N/A'}
                   </span>
                 </div>
                 <div>
@@ -475,7 +470,7 @@ export const ModelsPage: React.FC = () => {
                   <span className="text-base font-bold text-charcoal-900">
                     {typeof (selectedModel.metrics?.inference_latency_ms ?? selectedModel.metrics?.inferenceLatencyMs) === 'number'
                       ? `${selectedModel.metrics?.inference_latency_ms ?? selectedModel.metrics?.inferenceLatencyMs} ms`
-                      : '—'}
+                      : 'N/A'}
                   </span>
                 </div>
                 <div>
@@ -483,7 +478,7 @@ export const ModelsPage: React.FC = () => {
                   <span className="text-sm font-semibold text-charcoal-800">
                     {typeof selectedModel.metrics?.precision === 'number'
                       ? `${(selectedModel.metrics.precision * 100).toFixed(2)}%`
-                      : '—'}
+                      : 'N/A'}
                   </span>
                 </div>
                 <div>
@@ -491,7 +486,7 @@ export const ModelsPage: React.FC = () => {
                   <span className="text-sm font-semibold text-charcoal-800">
                     {typeof selectedModel.metrics?.recall === 'number'
                       ? `${(selectedModel.metrics.recall * 100).toFixed(2)}%`
-                      : '—'}
+                      : 'N/A'}
                   </span>
                 </div>
                 <div>
@@ -499,7 +494,7 @@ export const ModelsPage: React.FC = () => {
                   <span className="text-sm font-semibold text-charcoal-800">
                     {typeof selectedModel.metrics?.loss === 'number'
                       ? selectedModel.metrics.loss.toFixed(4)
-                      : '—'}
+                      : 'N/A'}
                   </span>
                 </div>
               </div>
@@ -518,7 +513,7 @@ export const ModelsPage: React.FC = () => {
               </h4>
               {selectedModel.topFeatures && selectedModel.topFeatures.length > 0 ? (
                 <div className="space-y-2 border border-border rounded-lg p-3 bg-surface">
-                  {selectedModel.topFeatures.map(item => (
+                  {selectedModel.topFeatures.map((item: any) => (
                     <div key={item.feature} className="space-y-1">
                       <div className="flex justify-between font-mono text-[11px]">
                         <span className="text-charcoal-800">{item.feature}</span>
@@ -549,7 +544,7 @@ export const ModelsPage: React.FC = () => {
                   Features Used ({selectedModel.featuresUsed.length})
                 </h4>
                 <div className="flex flex-wrap gap-1.5 p-3 rounded-lg bg-surface-subtle border border-border">
-                  {selectedModel.featuresUsed.map(feat => (
+                  {selectedModel.featuresUsed.map((feat: string) => (
                     <span
                       key={feat}
                       className="px-2 py-0.5 rounded bg-surface border border-border text-[11px] font-mono text-charcoal-700"
@@ -601,12 +596,12 @@ export const ModelsPage: React.FC = () => {
         )}
       </Drawer>
 
-      {/* Informational Stage Baseline Training Modal */}
+      {/* Baseline Training & ML Integration Capabilities Modal */}
       <Modal
         isOpen={isTrainModalOpen}
         onClose={() => setIsTrainModalOpen(false)}
         title="Stage Baseline Training & ML Integration"
-        description="Collaborative ML development status and training handoff interface."
+        description="Current status of machine learning models, federated runs, and training runner capabilities."
         maxWidth="lg"
       >
         <div className="space-y-4 text-xs font-sans">
@@ -618,32 +613,52 @@ export const ModelsPage: React.FC = () => {
               </h4>
             </div>
             <p className="text-forest-800 leading-relaxed">
-              Actual training algorithms (Random Forest, Logistic Regression, and FedAvg) are being implemented independently by your teammate per the <strong>ML & Federated Learning Integration Contract</strong>.
+              The primary research models are trained and fully operational for genuine inference. Live online retraining of arbitrary alternative baselines is explicitly scoped below.
             </p>
           </div>
 
           <div className="space-y-3 p-4 rounded border border-border bg-surface-subtle">
             <h5 className="font-semibold text-charcoal-900 uppercase tracking-wider text-[11px]">
-              Integration Readiness & Pipeline Status
+              Subsystem Verification & Operational Readiness
             </h5>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
               <div className="p-3 rounded bg-surface border border-border space-y-1">
                 <span className="font-semibold text-charcoal-800 flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-forest-700" />
-                  Data Preparation Pipeline
+                  Centralized PyTorch MLP (Operational)
                 </span>
                 <p className="text-charcoal-600 leading-relaxed">
-                  Dataset upload, validation, missing value imputation, RobustScaler transformations, and stratified train/val/test splits are fully operational and ready for model ingestion.
+                  Trained MLP (39 &rarr; 128 &rarr; 64 &rarr; 32 &rarr; 7) is loaded in memory at <code className="font-mono text-[10px]">ml/artifacts/mlp_model.pth</code>. Fully active for real-time and batch CSV inference.
+                </p>
+              </div>
+
+              <div className="p-3 rounded bg-surface border border-border space-y-1">
+                <span className="font-semibold text-charcoal-800 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-forest-700" />
+                  Federated Learning Checkpoints (Operational)
+                </span>
+                <p className="text-charcoal-600 leading-relaxed">
+                  Teammate FedAvg convergence history (20 rounds, 10 edge gateway clients) is verified and loaded from <code className="font-mono text-[10px]">federated/runs/A_iid_s42_R20_E1</code>.
+                </p>
+              </div>
+
+              <div className="p-3 rounded bg-surface border border-border space-y-1">
+                <span className="font-semibold text-charcoal-800 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-forest-700" />
+                  Data Preprocessing Engine (Operational)
+                </span>
+                <p className="text-charcoal-600 leading-relaxed">
+                  FastAPI preprocessing pipeline validates schemas, handles missing values, and fits RobustScaler strictly on training splits to prevent data leakage.
                 </p>
               </div>
 
               <div className="p-3 rounded bg-surface border border-border space-y-1">
                 <span className="font-semibold text-charcoal-800 flex items-center gap-1.5">
                   <Clock className="w-4 h-4 text-amber-700" />
-                  Model Training Engine
+                  Online Baselines Retraining (Disabled in Web UI)
                 </span>
                 <p className="text-charcoal-600 leading-relaxed">
-                  Baseline training execution will activate once the teammate’s ML/FL training modules and runner API are deployed.
+                  Ad-hoc web UI retraining for Random Forest and Logistic Regression is disabled pending an asynchronous GPU/CPU worker queue. Offline benchmark comparisons remain available under Evaluation.
                 </p>
               </div>
             </div>
@@ -654,18 +669,42 @@ export const ModelsPage: React.FC = () => {
               Zero Synthetic Metric Guarantee
             </span>
             <p className="leading-relaxed">
-              In accordance with research integrity standards, SentinelFL does not insert synthetic model runs or generate fake evaluation metrics. Models will only appear in this registry once genuine training execution has successfully produced persistent model checkpoints.
+              In accordance with research integrity standards, SentinelFL displays only genuine trained checkpoints and empirical evaluation metrics. Non-functional training buttons are disabled rather than presenting simulated training progress.
             </p>
           </div>
 
-          <div className="pt-3 flex justify-end gap-2 border-t border-border-subtle">
+          <div className="pt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setIsTrainModalOpen(false);
+                  window.location.assign('/detection');
+                }}
+              >
+                Go to Flow Detection Inference
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setIsTrainModalOpen(false);
+                  window.location.assign('/federated-learning');
+                }}
+              >
+                View Federated Experiments
+              </Button>
+            </div>
             <Button
               type="button"
               variant="primary"
               size="sm"
               onClick={() => setIsTrainModalOpen(false)}
             >
-              Understood
+              Close
             </Button>
           </div>
         </div>

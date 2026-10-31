@@ -12,6 +12,30 @@ def test_health_endpoint(client: TestClient):
     assert "python_version" in data
     assert "database" in data
     assert "storage" in data
+    assert "readiness" in data
+    assert "backend" in data["readiness"]
+    assert "database" in data["readiness"]
+    assert "storage" in data["readiness"]
+    assert "model_artifacts" in data["readiness"]
+    assert "inference_service" in data["readiness"]
+    assert "federated_execution_service" in data["readiness"]
+    assert "ml_inference" in data
+    assert "federated_service" in data
+
+
+def test_liveness_endpoint(client: TestClient):
+    response = client.get("/health/live")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "live"
+
+
+def test_readiness_endpoint(client: TestClient):
+    response = client.get("/health/ready")
+    assert response.status_code == 200
+    data = response.json()
+    assert "status" in data
+    assert data["status"] in ["ready", "not_ready"]
 
 
 def test_api_v1_discovery(client: TestClient):

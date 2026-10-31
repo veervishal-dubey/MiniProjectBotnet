@@ -1,0 +1,9 @@
+{
+  "Benign": 492193,
+  "DDoS-ACK": 67853,
+  "DDoS-SYN": 995136,
+  "DDoS-TCP": 802996,
+  "Mirai-greeth_flood": 169855,
+  "Mirai-greip_flood": 175999,
+  "Mirai-udpplain": 182140
+}

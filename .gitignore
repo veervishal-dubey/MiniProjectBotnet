@@ -12,6 +12,8 @@ __pycache__/
 .venv/
 env/
 venv/
+backend/storage/processed/
+backend/storage/fl_runs/
 
 # IDE / System
 .vscode/

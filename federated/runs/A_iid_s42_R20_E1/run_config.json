@@ -1,0 +1,18 @@
+{
+  "scenario": "A_iid",
+  "seed": 42,
+  "rounds": 20,
+  "local_epochs": 1,
+  "batch_size": 512,
+  "lr": 0.001,
+  "K": 10,
+  "store_dir": "/content/fl_data/A_iid",
+  "run_dir": "/content/fl_runs/A_iid_s42_R20_E1",
+  "log_path": "/content/fl_runs/A_iid_s42_R20_E1/client_log.jsonl",
+  "flwr": "1.42.0",
+  "torch": "2.11.0+cpu",
+  "elapsed_min": 6.283227674166361,
+  "fedavg_verification_maxdiff": 1.1920928955078125e-07,
+  "shared_client_to_server": "model weights, num-examples, train/val loss & accuracy",
+  "kept_local": "raw flows and labels (client_k.npz)"
+}

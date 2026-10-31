@@ -1,15 +1,14 @@
 import React from 'react';
 import { Info, AlertTriangle, Radio } from 'lucide-react';
-import { Badge } from './Badge';
 
 interface DisclaimerBannerProps {
-  type?: 'demo' | 'backend-offline' | 'no-live-collector';
+  type?: 'info' | 'backend-offline' | 'no-live-collector' | 'demo';
   message?: string;
   className?: string;
 }
 
 export const DisclaimerBanner: React.FC<DisclaimerBannerProps> = ({
-  type = 'demo',
+  type = 'info',
   message,
   className = '',
 }) => {
@@ -39,7 +38,7 @@ export const DisclaimerBanner: React.FC<DisclaimerBannerProps> = ({
         <div className="text-xs text-warmAmber-900 flex-1">
           <span className="font-semibold block sm:inline">FastAPI Backend Disconnected: </span>
           {message ||
-            'Running in frontend preview mode. Data operations and model simulations are performed locally in-browser.'}
+            'Running in offline mode. Connect to FastAPI backend at http://localhost:8000 to enable real-time inference and training.'}
         </div>
       </div>
     );
@@ -52,14 +51,9 @@ export const DisclaimerBanner: React.FC<DisclaimerBannerProps> = ({
       <div className="flex items-center gap-2.5">
         <Info className="w-4 h-4 text-forest-700 flex-shrink-0" />
         <div className="text-xs text-charcoal-700">
-          <span className="font-medium text-charcoal-900">Research Sandbox: </span>
-          {message ||
-            'Displaying curated IoT benchmark demonstration metrics (CICIoT2023 / BoT-IoT sample). Real executions connect to PyTorch FedAvg engine.'}
+          {message || 'SentinelFL Federated IoT Threat Intelligence platform.'}
         </div>
       </div>
-      <Badge variant="demo" size="sm">
-        DEMO MODE
-      </Badge>
     </div>
   );
 };

@@ -1,0 +1,12 @@
+{
+  "scenario": "A_iid",
+  "seed": 42,
+  "epochs": 40,
+  "batch_size": 512,
+  "lr": 0.001,
+  "train_rows": 1343859,
+  "val_rows": 149330,
+  "init_from": "A_iid_s42_R20_E1/init_weights.pt",
+  "training_fn": "fl_core.train_local (1 epoch per call)",
+  "note": "Centralized baseline trained on the union of FL client train splits"
+}

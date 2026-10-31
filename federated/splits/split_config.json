@@ -1,0 +1,26 @@
+{
+  "seed": 42,
+  "K": 10,
+  "test_frac": 0.15,
+  "local_val": 0.1,
+  "alphas": [
+    0.5,
+    0.1
+  ],
+  "min_client": 2000,
+  "benign_floor": 0.5,
+  "filehold_files": [
+    "DDoS-ACK 4.csv",
+    "DDoS-SYN_Flood4.pcap.csv",
+    "DDoS-TCP_Flood3.pcap.csv",
+    "Mirai-eth5.csv",
+    "Mirai-ip5.csv",
+    "Mirai-udp5.csv"
+  ],
+  "scenarios": [
+    "A_iid",
+    "A_dir0.5",
+    "A_dir0.1",
+    "B_filehold_iid"
+  ]
+}

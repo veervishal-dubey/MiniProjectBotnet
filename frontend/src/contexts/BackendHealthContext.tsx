@@ -42,7 +42,7 @@ export const BackendHealthProvider: React.FC<{ children: React.ReactNode }> = ({
       const start = performance.now();
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
 
         const res = await fetch(`${cleanUrl}/health`, {
           method: 'GET',
@@ -53,7 +53,7 @@ export const BackendHealthProvider: React.FC<{ children: React.ReactNode }> = ({
 
         if (res.ok) {
           const data = await res.json().catch(() => ({}));
-          const isHealthy = data.status === 'healthy';
+          const isHealthy = data.status === 'healthy' || data.status === 'degraded' || data.readiness?.backend === true;
           const newStatus: BackendHealthStatus = isHealthy ? 'online' : 'error';
           const serviceName = data.service || 'SentinelFL Backend';
           const ver = data.version || '1.0.0';
@@ -96,7 +96,14 @@ export const BackendHealthProvider: React.FC<{ children: React.ReactNode }> = ({
         setDatabaseStatus(undefined);
         setDatabaseLatencyMs(undefined);
 
-        const errorDetails = err instanceof Error ? err.message : 'Connection refused';
+        let errorDetails = 'Connection refused';
+        if (err instanceof Error) {
+          if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+            errorDetails = 'Request timed out after 8s';
+          } else {
+            errorDetails = err.message;
+          }
+        }
         const msg = `Cannot reach FastAPI server at ${cleanUrl}/health (${errorDetails}). Ensure local backend is running.`;
         setMessage(msg);
         setLastChecked(new Date().toLocaleTimeString());
@@ -116,13 +123,14 @@ export const BackendHealthProvider: React.FC<{ children: React.ReactNode }> = ({
     // Initial health check on mount
     checkHealth(undefined, false);
 
-    // Periodic heartbeat every 30 seconds
+    // Dynamic heartbeat: fast 5s probe when offline to recover immediately, 30s when online
+    const intervalTime = status === 'offline' ? 5000 : 30000;
     const interval = setInterval(() => {
       checkHealth(undefined, false);
-    }, 30000);
+    }, intervalTime);
 
     return () => clearInterval(interval);
-  }, [checkHealth]);
+  }, [checkHealth, status]);
 
   return (
     <BackendHealthContext.Provider

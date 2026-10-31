@@ -35,6 +35,7 @@ import { ClassDistributionBar } from '@/components/charts/ClassDistributionBar';
 import { parseCsvContent } from '@/lib/csvParser';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { useActiveDataset } from '@/contexts/ActiveDatasetContext';
 import {
   fetchWorkspaceDatasets,
   uploadDatasetToSupabase,
@@ -47,9 +48,9 @@ import { validateDatasetApi, ValidationReportDto } from '@/lib/backendApi';
 import { Activity, FileCheck, CheckCircle } from 'lucide-react';
 
 export const DatasetsPage: React.FC = () => {
-  const { isDemoMode } = useOutletContext<{ isDemoMode: boolean }>();
   const { user } = useAuth();
   const { workspace, refreshCounts } = useWorkspace();
+  const { activeDatasetId, isDatasetActive, selectDatasetForAnalysis, clearActiveDataset } = useActiveDataset();
   const { success, error, info } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -68,18 +69,11 @@ export const DatasetsPage: React.FC = () => {
   const [validationReport, setValidationReport] = useState<ValidationReportDto | null>(null);
   const [isValidationModalOpen, setIsValidationModalOpen] = useState(false);
 
-  // Load datasets: fetches live from Supabase when in live mode; loads benchmark samples when in Demo Mode
+  // Load datasets: fetches live from Supabase public.datasets table for the active workspace
   const loadDatasets = useCallback(async () => {
     setIsLoadingList(true);
     try {
-      if (isDemoMode) {
-        const demoList = storage.getDatasets(true);
-        setDatasets(demoList);
-        if (!selectedDataset && demoList.length > 0) {
-          setSelectedDataset(demoList[0]);
-        }
-      } else if (workspace?.id) {
-        // Query Supabase public.datasets table for the active workspace
+      if (workspace?.id) {
         try {
           const remoteList = await fetchWorkspaceDatasets(workspace.id);
           // Also merge any local session custom datasets if present
@@ -114,12 +108,10 @@ export const DatasetsPage: React.FC = () => {
     } finally {
       setIsLoadingList(false);
     }
-  }, [isDemoMode, workspace?.id]);
+  }, [workspace?.id]);
 
   useEffect(() => {
     loadDatasets();
-    window.addEventListener('sentinelfl:demomode-change', loadDatasets);
-    return () => window.removeEventListener('sentinelfl:demomode-change', loadDatasets);
   }, [loadDatasets]);
 
   // Handle file validation, CSV inspection, Supabase Storage upload, and metadata insertion
@@ -256,6 +248,11 @@ export const DatasetsPage: React.FC = () => {
       // 2. Remove from local storage cache
       storage.deleteCustomDataset(datasetToDelete.id);
 
+      // If active dataset was deleted, clear active analysis selection
+      if (datasetToDelete.id === activeDatasetId) {
+        clearActiveDataset();
+      }
+
       // 3. Update component state
       setDatasets(prev => prev.filter(d => d.id !== datasetToDelete.id));
       if (selectedDataset?.id === datasetToDelete.id) {
@@ -312,11 +309,11 @@ export const DatasetsPage: React.FC = () => {
     return true;
   });
 
-  const renderIotBadge = (status?: IotCompatibilityStatus, isDemo?: boolean) => {
-    if (isDemo) {
+  const renderIotBadge = (status?: IotCompatibilityStatus, datasetStatus?: string) => {
+    if (datasetStatus === 'preprocessed') {
       return (
-        <Badge variant="demo" size="sm">
-          BENCHMARK
+        <Badge variant="forest" size="sm" dot>
+          PREPROCESSING COMPLETED
         </Badge>
       );
     }
@@ -336,13 +333,20 @@ export const DatasetsPage: React.FC = () => {
       case 'inspection_failed':
         return (
           <Badge variant="red" size="sm" dot>
-            INSPECTION FAILED
+            VALIDATION FAILED
           </Badge>
         );
       default:
+        if (datasetStatus === 'ready') {
+          return (
+            <Badge variant="sage" size="sm" dot>
+              VALIDATED
+            </Badge>
+          );
+        }
         return (
           <Badge variant="neutral" size="sm">
-            NOT INSPECTED
+            UPLOADED
           </Badge>
         );
     }
@@ -350,14 +354,9 @@ export const DatasetsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Information Banner */}
       <DisclaimerBanner
-        type={isDemoMode ? 'demo' : 'no-live-collector'}
-        message={
-          isDemoMode
-            ? 'Viewing academic benchmark flow datasets (CICIoT2023 & BoT-IoT). All metrics represent verified empirical records.'
-            : `Datasets are secured with Supabase Row Level Security and isolated inside your workspace: "${workspace?.name || 'Personal Workspace'}". Private storage bucket: ${STORAGE_BUCKET_NAME}.`
-        }
+        type="info"
+        message={`Datasets are secured with Supabase Row Level Security and isolated inside your workspace: "${workspace?.name || 'Personal Workspace'}". Private storage bucket: ${STORAGE_BUCKET_NAME}.`}
       />
 
       {/* CSV Drag & Drop Upload Card */}
@@ -504,10 +503,10 @@ export const DatasetsPage: React.FC = () => {
 
           {filteredDatasets.length === 0 ? (
             <EmptyState
-              title={datasets.length === 0 ? 'No Datasets in Workspace' : 'No Matching Datasets'}
+              title={datasets.length === 0 ? 'No datasets uploaded yet' : 'No Matching Datasets'}
               description={
                 datasets.length === 0
-                  ? 'Your personal research workspace has zero uploaded flow records. Drag and drop a network capture (.CSV or .TXT) above or explore benchmark datasets.'
+                  ? 'Your workspace has zero uploaded flow records. Drag and drop a network capture (.CSV or .TXT) above to import flow records.'
                   : 'No datasets match your active search or filter criteria. Try clearing the filter.'
               }
               actionLabel={datasets.length === 0 ? 'Select CSV to Upload' : 'Clear Search'}
@@ -519,17 +518,6 @@ export const DatasetsPage: React.FC = () => {
                   setStatusFilter('all');
                 }
               }}
-              secondaryActionLabel={datasets.length === 0 && !isDemoMode ? 'Load Benchmark Datasets (Demo)' : undefined}
-              onSecondaryAction={
-                datasets.length === 0 && !isDemoMode
-                  ? () => {
-                      const s = storage.getSettings();
-                      s.useDemoData = true;
-                      storage.saveSettings(s);
-                      window.location.reload();
-                    }
-                  : undefined
-              }
             />
           ) : (
             <div className="overflow-x-auto border border-border rounded bg-surface shadow-subtle">
@@ -547,6 +535,7 @@ export const DatasetsPage: React.FC = () => {
                 <tbody className="divide-y divide-border-subtle font-mono">
                   {filteredDatasets.map(dataset => {
                     const isSelected = selectedDataset?.id === dataset.id;
+                    const isActive = isDatasetActive(dataset.id);
                     const format = dataset.fileFormat || (dataset.filename.endsWith('.txt') ? 'TXT' : 'CSV');
                     const sizeMb = (dataset.sizeBytes / 1024 / 1024).toFixed(2);
 
@@ -559,14 +548,19 @@ export const DatasetsPage: React.FC = () => {
                         }`}
                       >
                         <td className="py-3 px-3 font-sans">
-                          <div className="font-semibold text-charcoal-900 flex items-center gap-2">
+                          <div className="font-semibold text-charcoal-900 flex items-center gap-2 flex-wrap">
                             <span>{dataset.name}</span>
                             <Badge variant="neutral" size="sm" className="font-mono text-[10px]">
                               {format.toUpperCase()}
                             </Badge>
+                            {isActive && (
+                              <Badge variant="forest" size="sm" dot>
+                                ACTIVE FOR ANALYSIS
+                              </Badge>
+                            )}
                           </div>
                           <span className="text-[11px] text-charcoal-500 font-mono">
-                            {dataset.filename} • {sizeMb} MB • {new Date(dataset.createdAt).toLocaleDateString()}
+                            {dataset.filename} • ID: {dataset.id.slice(0, 16)}... • {sizeMb} MB • {new Date(dataset.createdAt).toLocaleDateString()}
                           </span>
                         </td>
                         <td className="py-3 px-3 text-charcoal-800">
@@ -581,10 +575,41 @@ export const DatasetsPage: React.FC = () => {
                           </Badge>
                         </td>
                         <td className="py-3 px-3 font-sans">
-                          {renderIotBadge(dataset.iotStatus, dataset.isDemoSample)}
+                          {renderIotBadge(dataset.iotStatus)}
                         </td>
                         <td className="py-3 px-3 text-right font-sans">
                           <div className="flex items-center justify-end gap-1.5">
+                            {isActive ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs px-2 text-forest-800 border-forest-300 bg-forest-50 hover:bg-forest-100"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  selectDatasetForAnalysis(null);
+                                  info('Selection Cleared', 'Active dataset deselected.');
+                                }}
+                                title="Active dataset for analysis (click to clear)"
+                              >
+                                <Check className="w-3.5 h-3.5 mr-1 text-forest-700" />
+                                Active
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 text-xs px-2 text-charcoal-700 hover:text-forest-800 hover:bg-forest-50"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  selectDatasetForAnalysis(dataset);
+                                  info('Dataset Activated', `"${dataset.name}" selected for analysis across Overview, Preprocessing, and Detection.`);
+                                }}
+                                title="Select this dataset for analysis"
+                              >
+                                <Radio className="w-3.5 h-3.5 mr-1" />
+                                Select for Analysis
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               variant="ghost"
@@ -629,7 +654,14 @@ export const DatasetsPage: React.FC = () => {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] text-charcoal-500 font-mono">SELECTED DATASET</span>
-                  {renderIotBadge(selectedDataset.iotStatus, selectedDataset.isDemoSample)}
+                  <div className="flex items-center gap-1.5">
+                    {isDatasetActive(selectedDataset.id) && (
+                      <Badge variant="forest" size="sm" dot>
+                        ACTIVE
+                      </Badge>
+                    )}
+                    {renderIotBadge(selectedDataset.iotStatus)}
+                  </div>
                 </div>
                 <CardTitle className="mt-1">{selectedDataset.name}</CardTitle>
                 <CardDescription>{selectedDataset.description}</CardDescription>
@@ -722,6 +754,12 @@ export const DatasetsPage: React.FC = () => {
                 {/* Metadata list */}
                 <div className="pt-3 border-t border-border-subtle space-y-2 text-xs font-mono">
                   <div className="flex justify-between py-1 border-b border-border-subtle">
+                    <span className="text-charcoal-500 font-sans">Database Record ID:</span>
+                    <span className="font-semibold text-charcoal-900 font-mono text-[11px] truncate max-w-[170px]" title={selectedDataset.id}>
+                      {selectedDataset.id}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border-subtle">
                     <span className="text-charcoal-500 font-sans">Total Records:</span>
                     <span className="font-semibold text-charcoal-900">
                       {selectedDataset.rowCount.toLocaleString()}
@@ -759,6 +797,33 @@ export const DatasetsPage: React.FC = () => {
 
                 {/* Actions */}
                 <div className="pt-2 flex flex-col gap-2 font-sans">
+                  {isDatasetActive(selectedDataset.id) ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full flex items-center justify-center gap-2 border-forest-300 bg-forest-50 text-forest-900 hover:bg-forest-100"
+                      onClick={() => {
+                        selectDatasetForAnalysis(null);
+                        info('Selection Cleared', 'Active dataset deselected.');
+                      }}
+                    >
+                      <Check className="w-4 h-4 text-forest-700" />
+                      <span>Active for Analysis (Click to Clear)</span>
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      className="w-full flex items-center justify-center gap-2"
+                      onClick={() => {
+                        selectDatasetForAnalysis(selectedDataset);
+                        info('Dataset Activated', `"${selectedDataset.name}" is now the active dataset for analysis.`);
+                      }}
+                    >
+                      <Radio className="w-4 h-4" />
+                      <span>Select for Analysis</span>
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="outline"
@@ -772,13 +837,34 @@ export const DatasetsPage: React.FC = () => {
                   </Button>
                   <Button
                     size="sm"
-                    variant="primary"
+                    variant="outline"
                     className="w-full"
+                    disabled={selectedDataset.iotStatus === 'inspection_failed' || selectedDataset.status === 'error'}
                     onClick={() => {
+                      selectDatasetForAnalysis(selectedDataset);
                       window.location.assign(`/preprocessing?dataset=${selectedDataset.id}`);
                     }}
+                    title={
+                      selectedDataset.iotStatus === 'inspection_failed'
+                        ? 'Cannot preprocess: Validation failed. Inspect schema issues.'
+                        : 'Open in Preprocessing Pipeline'
+                    }
                   >
                     Open in Preprocessing Pipeline
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="w-full flex items-center justify-center gap-2"
+                    disabled={selectedDataset.status === 'error'}
+                    onClick={() => {
+                      selectDatasetForAnalysis(selectedDataset);
+                      window.location.assign('/detection');
+                    }}
+                    title="Classify all eligible network flows with trained PyTorch model"
+                  >
+                    <Activity className="w-4 h-4" />
+                    <span>Classify in Flow Detection</span>
                   </Button>
                 </div>
               </CardContent>

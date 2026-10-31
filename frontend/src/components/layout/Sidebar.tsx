@@ -34,9 +34,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, isDemoMode })
   const { profile, isAuthenticated, isConfigured, signOut } = useAuth();
   const { workspace } = useWorkspace();
 
-  const navItems = [
+  const navItems: Array<{
+    to: string;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    highlight?: boolean;
+    badge?: string;
+  }> = [
     { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-    { to: '/datasets', label: 'Datasets', icon: Database, badge: '3' },
+    { to: '/datasets', label: 'Datasets', icon: Database },
     { to: '/preprocessing', label: 'Preprocessing', icon: Sliders },
     { to: '/models', label: 'Model Registry', icon: Cpu },
     { to: '/federated-learning', label: 'Federated Learning', icon: Network, highlight: true },

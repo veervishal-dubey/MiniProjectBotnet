@@ -37,8 +37,20 @@ class Settings:
     # File size limits (Default: 100MB)
     MAX_FILE_SIZE_BYTES: int = int(os.getenv("MAX_FILE_SIZE_BYTES", str(100 * 1024 * 1024)))
 
-    # Local storage cache for processed outputs
+    # Base and Repository Root directories (reliable, CWD-independent absolute paths)
+    BASE_DIR: Path = BASE_DIR
+    REPO_ROOT: Path = BASE_DIR.parent
+    STORAGE_DIR: Path = BASE_DIR / "storage"
+    FL_RUNS_DIR: Path = BASE_DIR / "storage" / "fl_runs"
     PROCESSED_CACHE_DIR: Path = BASE_DIR / "storage" / "processed"
+
+    # ML and Federated Learning configuration paths
+    ML_ARTIFACTS_DIR: Path = Path(os.getenv("ML_ARTIFACTS_DIR", str(BASE_DIR.parent / "ml" / "artifacts")))
+    FEDERATED_DIR: Path = Path(os.getenv("FEDERATED_DIR", str(BASE_DIR.parent / "federated")))
+    FEDERATED_RUNS_DIR: Path = Path(os.getenv("FEDERATED_RUNS_DIR", str(BASE_DIR.parent / "federated" / "runs")))
+    FEDERATED_CACHE_DIR: Path = Path(os.getenv("FEDERATED_CACHE_DIR", str(BASE_DIR.parent / "federated" / "cache")))
+    FEDERATED_SPLITS_DIR: Path = Path(os.getenv("FEDERATED_SPLITS_DIR", str(BASE_DIR.parent / "federated" / "splits")))
+    FEDERATED_REPORTS_DIR: Path = Path(os.getenv("FEDERATED_REPORTS_DIR", str(BASE_DIR.parent / "federated" / "reports")))
 
     @property
     def cors_origins(self) -> List[str]:
@@ -49,5 +61,7 @@ class Settings:
 
 
 settings = Settings()
-# Ensure local processed cache dir exists
+# Ensure local storage and runtime cache directories exist
+settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 settings.PROCESSED_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+settings.FL_RUNS_DIR.mkdir(parents=True, exist_ok=True)

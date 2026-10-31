@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
 import {
   Terminal,
   Search,
@@ -24,7 +23,6 @@ import { storage } from '@/lib/storage';
 import { LogEntry, LogSeverity, LogCategory } from '@/types/logs';
 
 export const LogsPage: React.FC = () => {
-  const { isDemoMode } = useOutletContext<{ isDemoMode: boolean }>();
   const { success, info } = useToast();
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -34,15 +32,13 @@ export const LogsPage: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<'ALL' | LogCategory>('ALL');
 
   const loadLogs = () => {
-    const list = storage.getLogs(isDemoMode);
+    const list = storage.getLogs(false);
     setLogs(list);
   };
 
   useEffect(() => {
     loadLogs();
-    window.addEventListener('sentinelfl:demomode-change', loadLogs);
-    return () => window.removeEventListener('sentinelfl:demomode-change', loadLogs);
-  }, [isDemoMode]);
+  }, []);
 
   const handleDownloadLogs = () => {
     const text = JSON.stringify(logs, null, 2);
@@ -86,8 +82,8 @@ export const LogsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <DisclaimerBanner
-        type="demo"
-        message="System audit logs record data ingestion, training checkpoints, and inference events. Demonstration logs are explicitly tagged."
+        type="info"
+        message="System audit logs record data ingestion, training checkpoints, and inference events."
       />
 
       {/* Filter and Search Bar */}

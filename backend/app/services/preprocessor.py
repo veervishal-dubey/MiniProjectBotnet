@@ -108,7 +108,12 @@ def execute_preprocessing(
     if df_features.empty or df_features.shape[1] == 0:
         raise ValueError("All feature columns were removed during filtering. Please adjust feature selection.")
 
-    # 8. Handling Missing Values (Imputation or Row Drop)
+    # 8. Handling Missing and Infinite Values (Imputation or Row Drop)
+    num_cols_raw = df_features.select_dtypes(include=[np.number]).columns
+    if len(num_cols_raw) > 0:
+        df_features[num_cols_raw] = df_features[num_cols_raw].replace([np.inf, -np.inf], np.nan)
+        df_features[num_cols_raw] = df_features[num_cols_raw].clip(lower=-1e300, upper=1e300)
+
     strat = config.imputation_strategy.lower()
     if strat == "drop_rows":
         before_drop = len(df_features)
