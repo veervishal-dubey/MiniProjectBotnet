@@ -20,3 +20,5 @@ backend/storage/fl_runs/
 .idea/
 .DS_Store
 Thumbs.db
+# Large ML cache files
+federated/cache/
