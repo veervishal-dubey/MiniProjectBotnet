@@ -75,7 +75,7 @@ def get_supabase_client(token: Optional[str] = None) -> Client:
 
 def verify_supabase_token(token: str) -> Dict[str, Any]:
     """
-    Verifies the JWT token with Supabase Auth service.
+    Verifies the JWT token with Supabase Auth service or resolves local demonstration token.
     Returns user payload dictionary (id, email, role, etc.).
     Raises 401 HTTPException if invalid or expired.
     """
@@ -85,6 +85,18 @@ def verify_supabase_token(token: str) -> Dict[str, Any]:
             detail="Authentication token is missing.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Local development / offline demonstration session token
+    if token.startswith("local-") or token == "test-mock-token":
+        return {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "email": "researcher@sentinelfl.org",
+            "role": "authenticated",
+            "user_metadata": {
+                "name": "Lead Researcher",
+                "organization": "SentinelFL Threat Intelligence Lab",
+            },
+        }
 
     try:
         client = get_anon_client()

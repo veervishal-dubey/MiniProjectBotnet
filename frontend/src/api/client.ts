@@ -6,6 +6,7 @@ import { ModelItem } from '@/types/model';
 import { FLExperiment, FLClient, FLRoundSummary } from '@/types/federated';
 import { NetworkFlowRecord, BatchClassificationResult } from '@/types/detection';
 import { EvaluationExperiment } from '@/types/evaluation';
+import { LogEntry } from '@/types/logs';
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   try {
@@ -64,7 +65,19 @@ export interface FLTrainingConfig {
 
 export class ApiClient {
   public get baseUrl(): string {
-    return storage.getSettings().backendApiUrl || (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8000';
+    const configured = storage.getSettings().backendApiUrl;
+    if (configured && configured !== 'http://localhost:8000') {
+      return configured.replace(/\/+$/, '');
+    }
+    const envUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
+    if (envUrl) {
+      return envUrl.replace(/\/+$/, '');
+    }
+    // If deployed on remote host or unified container, default to current origin
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return window.location.origin;
+    }
+    return configured || 'http://localhost:8000';
   }
 
   /**
@@ -394,6 +407,73 @@ export class ApiClient {
   }
 
   /**
+   * Uploads a labelled CSV dataset directly for empirical evaluation against FLMLP (mlp_model.pth).
+   * Computes genuine Accuracy, Macro/Weighted F1, FPR, FNR, 7x7 Confusion Matrix and classification report.
+   */
+  async evaluateCsv(file: File, modelId?: string): Promise<any> {
+    const headers = await getAuthHeaders();
+    const formData = new FormData();
+    formData.append('file', file);
+    if (modelId) {
+      formData.append('model_id', modelId);
+    }
+
+    const res = await fetch(`${this.baseUrl}/api/v1/evaluation/evaluate-csv`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Evaluation failed with status ${res.status}`);
+    }
+
+    return res.json();
+  }
+
+  /**
+   * Retrieves history of persisted model evaluation runs.
+   */
+  async getEvaluationHistory(): Promise<any[]> {
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${this.baseUrl}/api/v1/evaluation/history`, {
+        headers,
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      return [];
+    } catch (e) {
+      console.warn('Failed to fetch evaluation history:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Retrieves a specific evaluation run by ID.
+   */
+  async getEvaluationById(evalId: string): Promise<any> {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${this.baseUrl}/api/v1/evaluation/run/${encodeURIComponent(evalId)}`, {
+      headers,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Evaluation '${evalId}' not found`);
+    }
+    return res.json();
+  }
+
+  /**
+   * Returns direct download URL for evaluation report export.
+   */
+  getEvaluationReportUrl(evalId: string, format: 'json' | 'markdown' | 'csv' = 'json'): string {
+    return `${this.baseUrl}/api/v1/evaluation/report/${encodeURIComponent(evalId)}?format=${format}`;
+  }
+
+  /**
    * Retrieves Federated Learning operational status.
    */
   async getFLStatus(): Promise<{
@@ -576,6 +656,48 @@ export class ApiClient {
       data: [],
       isBackend: false,
     };
+  }
+
+  /**
+   * Retrieves durable audit logs from FastAPI backend SQLite ledger.
+   */
+  async getAuditLogs(params?: {
+    query?: string;
+    severity?: string;
+    category?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    logs: LogEntry[];
+    total: number;
+    limit: number;
+    offset: number;
+    categories_count: Record<string, number>;
+    severities_count: Record<string, number>;
+  }> {
+    const url = new URL(`${this.baseUrl}/api/v1/logs`);
+    if (params?.query) url.searchParams.set('query', params.query);
+    if (params?.severity && params.severity !== 'ALL') url.searchParams.set('severity', params.severity);
+    if (params?.category && params.category !== 'ALL') url.searchParams.set('category', params.category);
+    if (params?.limit) url.searchParams.set('limit', String(params.limit));
+    if (params?.offset) url.searchParams.set('offset', String(params.offset));
+
+    const res = await fetch(url.toString());
+    if (!res.ok) {
+      throw new Error(`Failed to fetch audit logs: ${res.statusText}`);
+    }
+    return res.json();
+  }
+
+  /**
+   * Retrieves live platform architecture, capabilities, and true asset counts.
+   */
+  async getSystemSummary(): Promise<any> {
+    const res = await fetch(`${this.baseUrl}/api/v1/system/summary`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch system summary: ${res.statusText}`);
+    }
+    return res.json();
   }
 }
 

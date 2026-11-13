@@ -321,6 +321,19 @@ class FLService:
             self.active_job = job_state
             self.jobs_history[job_id] = job_state
 
+        try:
+            from app.services.audit_service import audit_service
+            audit_service.record_event(
+                severity="INFO",
+                category="FEDERATED",
+                message=f"Federated Learning (FedAvg) job '{job_id}' dispatched across {req.num_clients} client partitions (Scenario: {req.scenario}, Rounds: {req.rounds}).",
+                component="FLService",
+                experiment_id=job_id,
+                details={"scenario": req.scenario, "rounds": req.rounds, "clients": req.num_clients, "local_epochs": req.local_epochs},
+            )
+        except Exception:
+            pass
+
         # Spawn background thread to perform training without blocking the server
         thread = threading.Thread(
             target=self._run_training_worker,
@@ -502,6 +515,19 @@ class FLService:
                     self.jobs_history[job_id]["latest_metrics"] = round_metric
                     self.jobs_history[job_id]["clients"] = final_client_metrics
 
+                try:
+                    from app.services.audit_service import audit_service
+                    audit_service.record_event(
+                        severity="INFO",
+                        category="FEDERATED",
+                        message=f"[{job_id}] Round {r}/{req.rounds} converged: Test Acc {eval_res['acc']*100:.2f}%, Test Loss {eval_res['loss']:.4f}, Macro F1 {macro_f1*100:.2f}%.",
+                        component="FLService",
+                        experiment_id=job_id,
+                        details=round_metric,
+                    )
+                except Exception:
+                    pass
+
             # Save final model
             torch.save(global_weights, run_output_dir / "global_model_final.pt")
 
@@ -522,6 +548,19 @@ class FLService:
                 self.active_job = None
             logger.info(f"Federated Learning job {job_id} completed successfully.")
 
+            try:
+                from app.services.audit_service import audit_service
+                audit_service.record_event(
+                    severity="INFO",
+                    category="FEDERATED",
+                    message=f"FedAvg global model checkpoint saved successfully for job '{job_id}'. Final Test Accuracy: {eval_res['acc']*100:.2f}%.",
+                    component="FLService",
+                    experiment_id=job_id,
+                    details={"checkpoint_path": str(run_output_dir / "global_model_final.pt"), "final_accuracy": eval_res["acc"], "final_loss": eval_res["loss"]},
+                )
+            except Exception:
+                pass
+
         except Exception as exc:
             logger.error(f"Error executing FL job {job_id}: {exc}", exc_info=True)
             with self.lock:
@@ -530,6 +569,18 @@ class FLService:
                     self.jobs_history[job_id]["error"] = str(exc)
                     self.jobs_history[job_id]["completed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 self.active_job = None
+
+            try:
+                from app.services.audit_service import audit_service
+                audit_service.record_event(
+                    severity="ERROR",
+                    category="FEDERATED",
+                    message=f"Federated Learning job '{job_id}' encountered failure: {str(exc)}",
+                    component="FLService",
+                    experiment_id=job_id,
+                )
+            except Exception:
+                pass
 
 
 # Global singleton instance

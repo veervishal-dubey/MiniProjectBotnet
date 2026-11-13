@@ -1,0 +1,366 @@
+{
+  "dataset_name": "cic_iot_2023_sample.csv",
+  "total_samples": 21,
+  "evaluated_samples": 21,
+  "has_ground_truth": true,
+  "accuracy": 1.0,
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1_score": 1.0,
+  "macro_precision": 1.0,
+  "macro_recall": 1.0,
+  "macro_f1": 1.0,
+  "weighted_precision": 1.0,
+  "weighted_recall": 1.0,
+  "weighted_f1": 1.0,
+  "false_positive_rate": 0.0,
+  "false_negative_rate": 0.0,
+  "confusion_matrix": {
+    "classes": [
+      "Benign",
+      "DDoS-ACK",
+      "DDoS-SYN",
+      "DDoS-TCP",
+      "Mirai-greeth_flood",
+      "Mirai-greip_flood",
+      "Mirai-udpplain"
+    ],
+    "matrix": [
+      [
+        3,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        3,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        3,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        3,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        3,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        3
+      ]
+    ],
+    "total_samples": 21,
+    "totalSamples": 21
+  },
+  "per_class_performance": [
+    {
+      "className": "Benign",
+      "class_name": "Benign",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    },
+    {
+      "className": "DDoS-ACK",
+      "class_name": "DDoS-ACK",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    },
+    {
+      "className": "DDoS-SYN",
+      "class_name": "DDoS-SYN",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    },
+    {
+      "className": "DDoS-TCP",
+      "class_name": "DDoS-TCP",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    },
+    {
+      "className": "Mirai-greeth_flood",
+      "class_name": "Mirai-greeth_flood",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    },
+    {
+      "className": "Mirai-greip_flood",
+      "class_name": "Mirai-greip_flood",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    },
+    {
+      "className": "Mirai-udpplain",
+      "class_name": "Mirai-udpplain",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    }
+  ],
+  "evaluated_at": "2026-11-13T16:49:01Z",
+  "model_version": "v1.0.0-centralized-mlp",
+  "datasetName": "cic_iot_2023_sample.csv",
+  "totalSamples": 21,
+  "evaluatedSamples": 21,
+  "hasGroundTruth": true,
+  "macroPrecision": 1.0,
+  "macroRecall": 1.0,
+  "f1Score": 1.0,
+  "macroF1": 1.0,
+  "weightedPrecision": 1.0,
+  "weightedRecall": 1.0,
+  "weightedF1": 1.0,
+  "falsePositiveRate": 0.0,
+  "falseNegativeRate": 0.0,
+  "confusionMatrix": {
+    "classes": [
+      "Benign",
+      "DDoS-ACK",
+      "DDoS-SYN",
+      "DDoS-TCP",
+      "Mirai-greeth_flood",
+      "Mirai-greip_flood",
+      "Mirai-udpplain"
+    ],
+    "matrix": [
+      [
+        3,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        3,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        3,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        3,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        3,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        3
+      ]
+    ],
+    "totalSamples": 21,
+    "total_samples": 21
+  },
+  "perClassPerformance": [
+    {
+      "className": "Benign",
+      "class_name": "Benign",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    },
+    {
+      "className": "DDoS-ACK",
+      "class_name": "DDoS-ACK",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    },
+    {
+      "className": "DDoS-SYN",
+      "class_name": "DDoS-SYN",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    },
+    {
+      "className": "DDoS-TCP",
+      "class_name": "DDoS-TCP",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    },
+    {
+      "className": "Mirai-greeth_flood",
+      "class_name": "Mirai-greeth_flood",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    },
+    {
+      "className": "Mirai-greip_flood",
+      "class_name": "Mirai-greip_flood",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    },
+    {
+      "className": "Mirai-udpplain",
+      "class_name": "Mirai-udpplain",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "f1_score": 1.0,
+      "support": 3,
+      "falsePositiveRate": 0.0,
+      "false_positive_rate": 0.0,
+      "fpr": 0.0
+    }
+  ],
+  "evaluatedAt": "2026-11-13T16:49:01Z",
+  "modelVersion": "v1.0.0-centralized-mlp",
+  "id": "eval-1794588541-98185e",
+  "eval_id": "eval-1794588541-98185e",
+  "rejected_count": 0
+}

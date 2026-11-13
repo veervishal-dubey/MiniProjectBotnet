@@ -18,7 +18,7 @@ import { useToast } from '@/components/ui/Toast';
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signIn, isConfigured } = useAuth();
+  const { signIn, signInAsLocalResearcher, isConfigured } = useAuth();
   const { success, error: toastError } = useToast();
 
   const [email, setEmail] = useState('');
@@ -184,6 +184,33 @@ export const LoginPage: React.FC = () => {
                 Sign In to Workspace
               </Button>
             </form>
+
+            <div className="relative my-2">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-border-subtle" />
+              </div>
+              <div className="relative flex justify-center text-[11px] uppercase tracking-wider text-charcoal-400">
+                <span className="bg-surface px-2">or local workstation</span>
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={async () => {
+                setIsSubmitting(true);
+                const result = await signInAsLocalResearcher(email || 'researcher@sentinelfl.org');
+                setIsSubmitting(false);
+                if (result.success) {
+                  success('Local Session Active', 'Connected to local researcher workspace.');
+                  navigate(from, { replace: true });
+                }
+              }}
+              disabled={isSubmitting}
+              className="w-full h-9 text-xs font-mono text-charcoal-700 hover:text-charcoal-900 border-border"
+            >
+              Enter as Local Researcher (Offline / Demo)
+            </Button>
 
             {/* Register Link */}
             <div className="text-center pt-3 border-t border-border-subtle text-xs text-charcoal-600">

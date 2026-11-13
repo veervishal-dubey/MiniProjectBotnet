@@ -11,6 +11,74 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/datasets", tags=["Datasets"])
 
 
+@router.get("/adapters")
+async def list_dataset_adapters():
+    """
+    Returns the catalog of registered dataset preprocessing adapters
+    and their compatibility with the active FLMLP model architecture.
+    """
+    from app.adapters.registry import adapter_registry
+    return adapter_registry.list_adapters()
+
+
+@router.post("/detect-adapter")
+async def detect_dataset_adapter(file: UploadFile = File(...)):
+    """
+    Inspects an uploaded CSV file, identifies its dataset signature (CIC IoT 2023,
+    Edge-IIoTset, or N-IoT), and returns empirical schema compatibility diagnostics.
+    """
+    if not file.filename or not file.filename.lower().endswith((".csv", ".txt")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file must have a .csv or .txt extension.",
+        )
+
+    import io
+    import pandas as pd
+    from app.adapters.registry import adapter_registry
+
+    content = await file.read()
+    try:
+        df = pd.read_csv(io.BytesIO(content), nrows=50)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not parse CSV: {exc}",
+        )
+
+    adapter, validation = adapter_registry.detect_adapter(df)
+
+    try:
+        from app.services.audit_service import audit_service
+        audit_service.record_event(
+            severity="INFO" if validation.is_compatible_with_flmlp else "WARN",
+            category="DATASET",
+            message=f"Dataset signature inspected: '{file.filename}'. Detected adapter: '{adapter.display_name}' ({'Supported for FLMLP' if validation.is_compatible_with_flmlp else 'Incompatible with FLMLP'}).",
+            component="DatasetAdapterRegistry",
+            details={
+                "filename": file.filename,
+                "dataset_type": adapter.dataset_type.value,
+                "is_compatible": validation.is_compatible_with_flmlp,
+                "rejection_reason": validation.rejection_reason,
+            },
+        )
+    except Exception:
+        pass
+
+    return {
+        "adapter_name": adapter.display_name,
+        "dataset_type": adapter.dataset_type.value,
+        "is_compatible_with_flmlp": validation.is_compatible_with_flmlp,
+        "matched_features_count": len(validation.matched_features),
+        "missing_features_count": len(validation.missing_mandatory_features),
+        "missing_features": validation.missing_mandatory_features[:10],
+        "detected_classes": validation.detected_classes,
+        "supported_classes": validation.supported_classes,
+        "notes": validation.notes,
+        "rejection_reason": validation.rejection_reason,
+    }
+
+
 @router.post("/{dataset_id}/validate", response_model=ValidationReport)
 async def validate_remote_dataset(
     dataset_id: str,

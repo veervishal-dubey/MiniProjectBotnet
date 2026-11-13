@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Terminal,
   Search,
@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Info,
   Layers,
+  RefreshCw,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -21,26 +22,57 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useToast } from '@/components/ui/Toast';
 import { storage } from '@/lib/storage';
 import { LogEntry, LogSeverity, LogCategory } from '@/types/logs';
+import { apiClient } from '@/api/client';
 
 export const LogsPage: React.FC = () => {
-  const { success, info } = useToast();
+  const { success, info, error: toastError } = useToast();
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [totalCount, setTotalCount] = useState<number>(0);
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [severityFilter, setSeverityFilter] = useState<'ALL' | LogSeverity>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<'ALL' | LogCategory>('ALL');
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isBackendLedger, setIsBackendLedger] = useState<boolean>(false);
 
-  const loadLogs = () => {
-    const list = storage.getLogs(false);
-    setLogs(list);
-  };
+  const loadLogs = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await apiClient.getAuditLogs({
+        query: searchQuery.trim() || undefined,
+        severity: severityFilter !== 'ALL' ? severityFilter : undefined,
+        category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
+        limit: 200,
+      });
+
+      if (res && Array.isArray(res.logs)) {
+        setLogs(res.logs);
+        setTotalCount(res.total);
+        setIsBackendLedger(true);
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend audit logs endpoint unreachable, checking local storage:', err);
+    }
+
+    // Local storage fallback
+    const localList = storage.getLogs(false);
+    setLogs(localList);
+    setTotalCount(localList.length);
+    setIsBackendLedger(false);
+    setIsLoading(false);
+  }, [searchQuery, severityFilter, categoryFilter]);
 
   useEffect(() => {
     loadLogs();
-  }, []);
+  }, [loadLogs]);
 
   const handleDownloadLogs = () => {
+    if (logs.length === 0) {
+      info('No Logs to Export', 'There are no active log records available to export.');
+      return;
+    }
     const text = JSON.stringify(logs, null, 2);
     const blob = new Blob([text], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -49,22 +81,8 @@ export const LogsPage: React.FC = () => {
     a.download = `sentinelfl_audit_logs_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    success('Logs Downloaded', 'Audit log file saved to your device.');
+    success('Logs Downloaded', `Exported ${logs.length} audit log records.`);
   };
-
-  const filteredLogs = logs.filter(log => {
-    const q = searchQuery.toLowerCase();
-    const matchSearch =
-      !q ||
-      log.message.toLowerCase().includes(q) ||
-      log.component.toLowerCase().includes(q) ||
-      log.category.toLowerCase().includes(q);
-
-    const matchSev = severityFilter === 'ALL' || log.severity === severityFilter;
-    const matchCat = categoryFilter === 'ALL' || log.category === categoryFilter;
-
-    return matchSearch && matchSev && matchCat;
-  });
 
   const getSeverityBadge = (sev: LogSeverity) => {
     switch (sev) {
@@ -76,6 +94,8 @@ export const LogsPage: React.FC = () => {
         return <Badge variant="red" size="sm">ERROR</Badge>;
       case 'DEBUG':
         return <Badge variant="neutral" size="sm">DEBUG</Badge>;
+      default:
+        return <Badge variant="neutral" size="sm">{sev}</Badge>;
     }
   };
 
@@ -83,7 +103,7 @@ export const LogsPage: React.FC = () => {
     <div className="space-y-6">
       <DisclaimerBanner
         type="info"
-        message="System audit logs record data ingestion, training checkpoints, and inference events."
+        message="System audit logs record data ingestion, training checkpoints, schema validation, and inference events in a durable SQLite ledger."
       />
 
       {/* Filter and Search Bar */}
@@ -104,6 +124,14 @@ export const LogsPage: React.FC = () => {
             <Button
               size="sm"
               variant="outline"
+              leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />}
+              onClick={() => loadLogs()}
+            >
+              Refresh
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
               leftIcon={<Download className="w-3.5 h-3.5" />}
               onClick={handleDownloadLogs}
             >
@@ -114,7 +142,7 @@ export const LogsPage: React.FC = () => {
 
         {/* Severity & Category Chips */}
         <div className="mt-3 pt-3 border-t border-border-subtle flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[11px] text-charcoal-500 font-mono mr-1">Severity:</span>
             {(['ALL', 'INFO', 'WARN', 'ERROR', 'DEBUG'] as const).map(sev => (
               <button
@@ -131,7 +159,7 @@ export const LogsPage: React.FC = () => {
             ))}
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[11px] text-charcoal-500 font-mono mr-1">Category:</span>
             {(['ALL', 'FEDERATED', 'DETECTION', 'TRAINING', 'DATASET', 'SYSTEM'] as const).map(cat => (
               <button
@@ -148,13 +176,22 @@ export const LogsPage: React.FC = () => {
             ))}
           </div>
         </div>
+
+        <div className="mt-2 text-[11px] text-charcoal-500 font-mono flex items-center justify-between">
+          <span>Ledger Source: {isBackendLedger ? 'Durable SQLite WAL Persistence' : 'Local Session Memory'}</span>
+          <span>Matching Events: {logs.length} / {totalCount}</span>
+        </div>
       </Card>
 
       {/* Logs Table */}
-      {filteredLogs.length === 0 ? (
+      {logs.length === 0 ? (
         <EmptyState
           title="No Logs Found"
-          description="No log events match your active search and severity filters."
+          description={
+            searchQuery || severityFilter !== 'ALL' || categoryFilter !== 'ALL'
+              ? 'No log events match your active search and category filters.'
+              : 'Audit ledger is empty. Ingest a dataset, execute a flow classification, or run a federated training round to generate live audit events.'
+          }
           actionLabel="Reset Filters"
           onAction={() => {
             setSearchQuery('');
@@ -176,14 +213,14 @@ export const LogsPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-border-subtle bg-surface">
-              {filteredLogs.map(log => (
+              {logs.map(log => (
                 <tr
                   key={log.id}
                   onClick={() => setSelectedLog(log)}
                   className="hover:bg-surface-subtle/70 cursor-pointer transition-colors"
                 >
                   <td className="py-2.5 px-3 text-charcoal-500 whitespace-nowrap">
-                    {new Date(log.timestamp).toLocaleTimeString()}
+                    {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '—'}
                   </td>
                   <td className="py-2.5 px-3 font-sans">
                     {getSeverityBadge(log.severity)}
@@ -197,11 +234,6 @@ export const LogsPage: React.FC = () => {
                     {log.component}
                   </td>
                   <td className="py-2.5 px-3 text-charcoal-800 font-sans truncate max-w-md">
-                    {log.isSyntheticDemo && (
-                      <span className="text-[10px] font-mono text-warmAmber-700 mr-1.5 font-bold">
-                        [DEMO]
-                      </span>
-                    )}
                     <span>{log.message}</span>
                   </td>
                   <td className="py-2.5 px-3 text-right font-sans">
@@ -249,6 +281,12 @@ export const LogsPage: React.FC = () => {
                 <span className="text-charcoal-500 font-sans">Component:</span>
                 <span className="text-charcoal-900">{selectedLog.component}</span>
               </div>
+              {selectedLog.experimentId && (
+                <div className="flex justify-between">
+                  <span className="text-charcoal-500 font-sans">Experiment ID:</span>
+                  <span className="text-charcoal-900">{selectedLog.experimentId}</span>
+                </div>
+              )}
             </div>
 
             <div>
@@ -265,7 +303,7 @@ export const LogsPage: React.FC = () => {
                 <h4 className="text-xs font-semibold text-charcoal-900 font-sans uppercase tracking-wider mb-1">
                   Structured Payload Metadata
                 </h4>
-                <pre className="p-3 rounded bg-surface-subtle border border-border text-[11px] overflow-x-auto text-charcoal-900">
+                <pre className="p-3 rounded bg-surface-subtle border border-border text-[11px] overflow-x-auto text-charcoal-900 max-h-64">
                   {JSON.stringify(selectedLog.details, null, 2)}
                 </pre>
               </div>

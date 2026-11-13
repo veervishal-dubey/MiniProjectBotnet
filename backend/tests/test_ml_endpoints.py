@@ -222,3 +222,73 @@ def test_predict_csv_with_infinities_and_large_floats():
         assert f["predicted_class"] in ml_service.classes or f["status"] == "rejected"
 
 
+def test_evaluate_csv_endpoint_with_real_sample(authenticated_client):
+    from pathlib import Path
+    sample_csv = Path(__file__).resolve().parent.parent.parent / "ml" / "data" / "samples" / "cic_iot_2023_sample.csv"
+    assert sample_csv.exists(), f"Sample CSV missing at {sample_csv}"
+
+    with open(sample_csv, "rb") as f:
+        file_bytes = f.read()
+
+    files = {"file": ("cic_iot_2023_sample.csv", file_bytes, "text/csv")}
+    response = authenticated_client.post("/api/v1/evaluation/evaluate-csv", files=files)
+    assert response.status_code == 200, response.text
+    data = response.json()
+
+    # Check that dual keys are present
+    assert data["has_ground_truth"] is True
+    assert data["hasGroundTruth"] is True
+    assert "accuracy" in data
+    assert 0.0 <= data["accuracy"] <= 1.0
+    assert "macro_f1" in data
+    assert "weighted_f1" in data
+    assert "confusion_matrix" in data
+    assert "confusionMatrix" in data
+    assert len(data["confusion_matrix"]["classes"]) == 7
+    assert len(data["confusion_matrix"]["matrix"]) == 7
+    assert "per_class_performance" in data
+    assert len(data["per_class_performance"]) == 7
+    assert "id" in data
+    eval_id = data["id"]
+
+    # Test history retrieval
+    hist_resp = authenticated_client.get("/api/v1/evaluation/history")
+    assert hist_resp.status_code == 200
+    hist = hist_resp.json()
+    assert any((h.get("id") == eval_id or h.get("eval_id") == eval_id) for h in hist)
+
+    # Test run retrieval by ID
+    run_resp = authenticated_client.get(f"/api/v1/evaluation/run/{eval_id}")
+    assert run_resp.status_code == 200
+    assert run_resp.json()["id"] == eval_id
+
+    # Test report export in Markdown, JSON, and CSV
+    md_resp = authenticated_client.get(f"/api/v1/evaluation/report/{eval_id}?format=markdown")
+    assert md_resp.status_code == 200
+    assert "# SentinelFL Model Evaluation Report" in md_resp.text
+
+    csv_resp = authenticated_client.get(f"/api/v1/evaluation/report/{eval_id}?format=csv")
+    assert csv_resp.status_code == 200
+    assert "class,precision,recall,f1_score" in csv_resp.text
+
+    json_resp = authenticated_client.get(f"/api/v1/evaluation/report/{eval_id}?format=json")
+    assert json_resp.status_code == 200
+    assert json_resp.json()["id"] == eval_id
+
+
+def test_evaluate_csv_rejects_unlabelled_file(authenticated_client):
+    import io
+    import pandas as pd
+
+    # Create CSV without any ground truth label column
+    df = pd.DataFrame([{col: 1.0 for col in ml_service.feature_columns}])
+    buf = io.BytesIO()
+    df.to_csv(buf, index=False)
+
+    files = {"file": ("unlabelled.csv", buf.getvalue(), "text/csv")}
+    response = authenticated_client.post("/api/v1/evaluation/evaluate-csv", files=files)
+    assert response.status_code == 422
+    assert "does not contain recognized ground-truth labels" in response.json()["detail"]
+
+
+

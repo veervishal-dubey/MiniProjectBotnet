@@ -1,6 +1,7 @@
 import io
 import json
 import time
+import uuid
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
@@ -252,11 +253,47 @@ class MLService:
 
         return features
 
+    def detect_label_column(self, df: pd.DataFrame) -> Optional[str]:
+        """
+        Robust detection of ground-truth label column in uploaded dataset.
+        Checks explicit names, stripped variants, and common suffix patterns.
+        """
+        known_exact = [
+            "label", "labels", "target", "class", "classes",
+            "attack", "attacks", "attack_type", "attack_cat", "threat",
+            "threat_type", "threat_class", "category", "traffic_type",
+            "ground_truth", "actual_label", "actual"
+        ]
+        # 1. Exact case-insensitive match
+        for col in df.columns:
+            clean_col = str(col).strip().lower()
+            if clean_col in known_exact:
+                return col
+        # 2. Suffix match (e.g. 'threat_label', 'traffic_class') excluding protocol columns
+        for col in df.columns:
+            clean_col = str(col).strip().lower()
+            if any(clean_col.endswith(sfx) for sfx in ["_label", "_target", "_class", "_attack", "_cat"]):
+                if "protocol" not in clean_col and "proto" not in clean_col:
+                    return col
+        return None
+
     def canonicalize_class_name(self, raw_label: Any) -> Optional[str]:
         """Normalizes raw dataset label values to standard 7 classes if matching."""
         if raw_label is None or pd.isna(raw_label):
             return None
         s = str(raw_label).strip()
+
+        # Handle numeric indices (0..6)
+        try:
+            num = float(s)
+            if np.isfinite(num):
+                idx = int(num)
+                if 0 <= idx < len(self.classes):
+                    return self.classes[idx]
+        except (ValueError, TypeError, OverflowError):
+            pass
+
+        # Exact or case-insensitive match
         for cls_name in self.classes:
             if s.lower() == cls_name.lower() or s.lower().replace("-", "_") == cls_name.lower().replace("-", "_"):
                 return cls_name
@@ -283,90 +320,47 @@ class MLService:
         actual_labels: Optional[List[Optional[str]]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
-        Validates schema, aligns features, sanitizes infinities and extreme values,
-        and generates genuine predictions for a batch DataFrame in memory-safe chunks.
-        Never leaks target label into feature matrix.
+        Validates schema using dataset adapters, aligns features without data leakage,
+        safely sanitizes infinities and extreme values, and generates genuine predictions
+        for a batch DataFrame in memory-safe chunks using the loaded PyTorch MLP.
         Returns: (results_list, rejected_count)
         """
         if not self.is_loaded or self.model is None or self.scaler is None:
             raise RuntimeError(f"ML model is not loaded: {self.load_error or 'Unknown failure'}")
 
-        # 1. Align features using exact match, clean lowercase match, and FEATURE_ALIASES
-        clean_col_map = {col.strip().lower(): col for col in df.columns}
-        df_aligned = pd.DataFrame(index=df.index)
-        missing_critical_cols = []
-
-        # Categorize features: continuous traffic features vs. binary protocol/flag indicators
-        flag_or_indicator_cols = {
-            "ARP", "DNS", "Telnet", "HTTP", "HTTPS", "ICMP", "IGMP", "IRC", "IPv", "LLC",
-            "SSH", "TCP", "UDP", "DHCP", "SMTP", "psh_flag_number", "cwr_flag_number",
-            "syn_flag_number", "ece_flag_number", "fin_flag_number", "ack_flag_number",
-            "rst_flag_number",
-        }
-
-        for expected_col in self.feature_columns:
-            found_col = None
-            if expected_col in df.columns:
-                found_col = expected_col
-            elif expected_col.strip().lower() in clean_col_map:
-                found_col = clean_col_map[expected_col.strip().lower()]
-            else:
-                # Check aliases
-                aliases = FEATURE_ALIASES.get(expected_col, [])
-                for alias in aliases:
-                    if alias in clean_col_map:
-                        found_col = clean_col_map[alias]
-                        break
-
-            if found_col is not None:
-                df_aligned[expected_col] = df[found_col]
-            else:
-                if expected_col in flag_or_indicator_cols:
-                    # Missing indicator or protocol flag safely defaults to 0.0
-                    df_aligned[expected_col] = 0.0
-                else:
-                    missing_critical_cols.append(expected_col)
-
-        if len(missing_critical_cols) > 5:
+        # 1. Detect dataset type and validate compatibility through the Adapter Architecture
+        from app.adapters.registry import adapter_registry
+        adapter, report = adapter_registry.detect_adapter(df)
+        if not report.is_compatible_with_flmlp:
+            try:
+                from app.services.audit_service import audit_service
+                audit_service.record_event(
+                    severity="WARN",
+                    category="DATASET",
+                    message=f"Dataset schema '{report.dataset_name}' rejected for FLMLP inference: {report.rejection_reason}",
+                    component="DatasetAdapterRegistry",
+                    details={"dataset_name": report.dataset_name, "rejection_reason": report.rejection_reason},
+                )
+            except Exception:
+                pass
             raise ValueError(
-                f"Missing {len(missing_critical_cols)} critical network feature columns for model inference. "
-                f"Example missing: {missing_critical_cols[:5]}"
+                f"Dataset '{report.dataset_name}' is incompatible with the FLMLP model. "
+                f"{report.rejection_reason}"
             )
-        elif missing_critical_cols:
-            # For a minor missing column in unaligned capture, impute with 0.0
-            for col in missing_critical_cols:
-                df_aligned[col] = 0.0
 
-        # 2. Reorder columns strictly as expected by scaler and model
-        df_aligned = df_aligned[self.feature_columns]
+        # 2. Align and scale features through the verified adapter
+        X_scaled, adapter_labels, _ = adapter.align_and_preprocess(df, scaler=self.scaler)
+        if actual_labels is None and adapter_labels is not None:
+            actual_labels = adapter_labels
 
-        # 3. Numeric conversion and robust infinity/overflow detection
-        raw_num = df_aligned.apply(pd.to_numeric, errors="coerce")
-        raw_vals = raw_num.to_numpy(dtype=np.float64, na_value=np.nan)
+        total_samples = len(df)
+        all_nan_rows = np.all(np.isnan(X_scaled), axis=1)
 
-        # Detect rows with unrecoverable corruption (e.g. all-NaN rows or corrupt non-numeric data)
-        all_nan_rows = np.all(np.isnan(raw_vals), axis=1)
-
-        # Sanitize positive and negative infinity and extreme overflow numbers (|x| > 1e300)
-        # to prevent: ValueError: Input X contains infinity or a value too large for dtype('float64')
-        clean_vals = np.where(np.isinf(raw_vals) | (np.abs(raw_vals) > 1e300), np.nan, raw_vals)
-        # Impute residual NaNs with column medians or 0.0
-        col_medians = np.nanmedian(clean_vals, axis=0)
-        col_medians = np.nan_to_num(col_medians, nan=0.0)
-
-        nan_mask = np.isnan(clean_vals)
-        clean_vals[nan_mask] = np.take(col_medians, np.where(nan_mask)[1])
-
-        clean_df = pd.DataFrame(clean_vals, columns=self.feature_columns, index=df.index)
-
-        # 4. Standardize using pre-fitted StandardScaler
-        X_scaled = self.scaler.transform(clean_df)
-
-        # 5. Model forward pass in memory-safe chunks (1024 samples) in eval mode
+        # 3. Model forward pass in memory-safe chunks (1024 samples) in eval mode
         start_time = time.perf_counter()
         probabilities_list = []
         chunk_size = 1024
-        total_samples = len(df_aligned)
+        total_samples = len(df)
 
         with torch.no_grad():
             for offset in range(0, total_samples, chunk_size):
@@ -438,6 +432,28 @@ class MLService:
         res = results[0]
 
         flow_id = req.flow_id or f"flow-{int(time.time() * 1000)}"
+
+        try:
+            from app.services.audit_service import audit_service
+            audit_service.record_event(
+                severity="WARN" if res.get("is_malicious") else "INFO",
+                category="DETECTION",
+                message=f"Single flow classified as '{res['predicted_class']}' ({res['confidence'] * 100:.1f}% confidence) - Risk: {res['risk_level'].upper()}",
+                component="MLService",
+                details={
+                    "flow_id": flow_id,
+                    "predicted_class": res["predicted_class"],
+                    "confidence": res["confidence"],
+                    "is_malicious": res.get("is_malicious", False),
+                    "risk_level": res["risk_level"],
+                    "src_ip": req.src_ip,
+                    "dst_ip": req.dst_ip,
+                    "protocol": req.protocol,
+                },
+            )
+        except Exception:
+            pass
+
         return PredictionResult(
             id=flow_id,
             timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -484,10 +500,7 @@ class MLService:
         total_rows = len(df)
 
         # 1. Check for ground truth target label column
-        label_col = next(
-            (c for c in df.columns if c.strip().lower() in ["label", "target", "class", "attack_cat", "threat_class", "category"]),
-            None,
-        )
+        label_col = self.detect_label_column(df)
 
         actual_labels: Optional[List[Optional[str]]] = None
         df_for_model = df.copy()
@@ -620,6 +633,40 @@ class MLService:
             evaluation=evaluation_result,
         )
 
+        try:
+            from app.services.audit_service import audit_service
+            audit_service.record_event(
+                severity="WARN" if malicious_count > 0 else "INFO",
+                category="DETECTION",
+                message=f"Batch CSV classification completed for '{filename}': {malicious_count} malicious attacks, {benign_count} benign flows ({total_classified} total).",
+                component="MLService",
+                details={
+                    "filename": filename,
+                    "total_flows": total_classified,
+                    "malicious_count": malicious_count,
+                    "benign_count": benign_count,
+                    "model": self.model_version,
+                    "has_ground_truth": bool(evaluation_result is not None),
+                },
+            )
+            if evaluation_result:
+                audit_service.record_event(
+                    severity="INFO",
+                    category="TRAINING",
+                    message=f"Ground-truth evaluation calculated for '{dataset_name or filename}': Accuracy {evaluation_result.get('accuracy', 0)*100:.2f}%, Macro F1 {evaluation_result.get('macro_f1', 0)*100:.2f}%.",
+                    component="MLService",
+                    details={
+                        "dataset_name": dataset_name or filename,
+                        "accuracy": evaluation_result.get("accuracy"),
+                        "macro_precision": evaluation_result.get("macro_precision"),
+                        "macro_recall": evaluation_result.get("macro_recall"),
+                        "macro_f1": evaluation_result.get("macro_f1"),
+                        "evaluated_samples": evaluation_result.get("evaluated_samples"),
+                    },
+                )
+        except Exception:
+            pass
+
         # 4. Cache prediction results for immediate state restoration
         if dataset_id:
             self.dataset_predictions[dataset_id] = response
@@ -676,13 +723,21 @@ class MLService:
                         malicious_false_negatives += 1
 
         if valid_count == 0:
-            return {"totalSamples": 0, "hasGroundTruth": False}
+            return {
+                "total_samples": 0,
+                "totalSamples": 0,
+                "evaluated_samples": 0,
+                "evaluatedSamples": 0,
+                "has_ground_truth": False,
+                "hasGroundTruth": False,
+            }
 
         # Calculate per-class metrics
         per_class_performance = []
         precisions = []
         recalls = []
         f1_scores = []
+        supports = []
 
         total_matrix_sum = valid_count
 
@@ -700,43 +755,207 @@ class MLService:
 
             per_class_performance.append({
                 "className": cls_name,
+                "class_name": cls_name,
                 "precision": prec,
                 "recall": rec,
                 "f1Score": f1,
+                "f1_score": f1,
                 "support": support,
                 "falsePositiveRate": fpr,
+                "false_positive_rate": fpr,
+                "fpr": fpr,
             })
 
             if support > 0:
                 precisions.append(prec)
                 recalls.append(rec)
                 f1_scores.append(f1)
+                supports.append(support)
 
         accuracy = round(correct_count / valid_count, 4) if valid_count > 0 else 0.0
         macro_prec = round(float(np.mean(precisions)), 4) if precisions else 0.0
         macro_rec = round(float(np.mean(recalls)), 4) if recalls else 0.0
         macro_f1 = round(float(np.mean(f1_scores)), 4) if f1_scores else 0.0
+
+        # Weighted metrics
+        sum_support = sum(supports)
+        weighted_prec = round(float(sum(p * s for p, s in zip(precisions, supports)) / sum_support), 4) if sum_support > 0 else 0.0
+        weighted_rec = round(float(sum(r * s for r, s in zip(recalls, supports)) / sum_support), 4) if sum_support > 0 else 0.0
+        weighted_f1 = round(float(sum(f * s for f, s in zip(f1_scores, supports)) / sum_support), 4) if sum_support > 0 else 0.0
+
         overall_fpr = round(benign_false_positives / max(1, benign_total), 4) if benign_total > 0 else 0.0
         overall_fnr = round(malicious_false_negatives / max(1, malicious_total), 4) if malicious_total > 0 else 0.0
+        now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         return {
-            "datasetName": dataset_name,
-            "totalSamples": valid_count,
-            "hasGroundTruth": True,
+            # Standard snake_case
+            "dataset_name": dataset_name,
+            "total_samples": valid_count,
+            "evaluated_samples": valid_count,
+            "has_ground_truth": True,
             "accuracy": accuracy,
             "precision": macro_prec,
             "recall": macro_rec,
+            "f1_score": macro_f1,
+            "macro_precision": macro_prec,
+            "macro_recall": macro_rec,
+            "macro_f1": macro_f1,
+            "weighted_precision": weighted_prec,
+            "weighted_recall": weighted_rec,
+            "weighted_f1": weighted_f1,
+            "false_positive_rate": overall_fpr,
+            "false_negative_rate": overall_fnr,
+            "confusion_matrix": {
+                "classes": self.classes,
+                "matrix": matrix,
+                "total_samples": valid_count,
+                "totalSamples": valid_count,
+            },
+            "per_class_performance": per_class_performance,
+            "evaluated_at": now_iso,
+            "model_version": self.model_version,
+
+            # camelCase aliases for seamless frontend compatibility
+            "datasetName": dataset_name,
+            "totalSamples": valid_count,
+            "evaluatedSamples": valid_count,
+            "hasGroundTruth": True,
+            "macroPrecision": macro_prec,
+            "macroRecall": macro_rec,
             "f1Score": macro_f1,
+            "macroF1": macro_f1,
+            "weightedPrecision": weighted_prec,
+            "weightedRecall": weighted_rec,
+            "weightedF1": weighted_f1,
             "falsePositiveRate": overall_fpr,
             "falseNegativeRate": overall_fnr,
             "confusionMatrix": {
                 "classes": self.classes,
                 "matrix": matrix,
                 "totalSamples": valid_count,
+                "total_samples": valid_count,
             },
             "perClassPerformance": per_class_performance,
-            "evaluatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "evaluatedAt": now_iso,
+            "modelVersion": self.model_version,
         }
+
+    def evaluate_csv_bytes(
+        self,
+        csv_bytes: bytes,
+        filename: str = "evaluation_dataset.csv",
+        model_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Parses uploaded CSV bytes, rigorously checks for ground-truth label column,
+        isolates the labels to prevent data leakage, aligns features using the adapter,
+        runs batch inference through the PyTorch FLMLP model, computes genuine empirical metrics
+        (Accuracy, Macro/Weighted F1, FPR, FNR, 7x7 confusion matrix, per-class metrics),
+        persists the evaluation to storage/evaluations/{eval_id}.json, and records an audit log.
+        """
+        if not self.is_loaded or self.model is None or self.scaler is None:
+            raise RuntimeError(f"ML model is not loaded: {self.load_error or 'Unknown failure'}")
+
+        try:
+            df = pd.read_csv(io.BytesIO(csv_bytes))
+        except Exception as exc:
+            raise ValueError(f"Could not parse uploaded file as CSV: {exc}")
+
+        if df.empty:
+            raise ValueError("Uploaded CSV file contains no data rows.")
+
+        # 1. Identify ground-truth label column
+        label_col = self.detect_label_column(df)
+        if not label_col:
+            raise ValueError(
+                f"Uploaded dataset '{filename}' does not contain recognized ground-truth labels. "
+                f"Evaluation requires a known label column (e.g. 'label', 'attack_type', 'class', etc.) to evaluate model predictions."
+            )
+
+        raw_labels = df[label_col].tolist()
+        actual_labels = [self.canonicalize_class_name(l) for l in raw_labels]
+
+        # 2. STRICT NO-DATA-LEAKAGE: remove target label column from feature matrix
+        df_for_model = df.drop(columns=[label_col])
+
+        # 3. Model inference
+        predictions, rejected_count = self.predict_dataframe(df_for_model, actual_labels=actual_labels)
+
+        # 4. Compute empirical metrics
+        pred_classes = [r["predicted_class"] for r in predictions]
+        metrics = self.compute_evaluation_metrics(
+            actual_labels=actual_labels,
+            predictions=pred_classes,
+            dataset_name=filename,
+        )
+
+        eval_id = f"eval-{int(time.time())}-{uuid.uuid4().hex[:6]}"
+        metrics["id"] = eval_id
+        metrics["eval_id"] = eval_id
+        metrics["rejected_count"] = rejected_count
+
+        # 5. Persist to storage/evaluations/
+        try:
+            settings.EVALUATIONS_DIR.mkdir(parents=True, exist_ok=True)
+            eval_path = settings.EVALUATIONS_DIR / f"{eval_id}.json"
+            eval_path.write_text(json.dumps(metrics, indent=2))
+        except Exception as exc:
+            logger.warning(f"Failed to persist evaluation {eval_id} to disk: {exc}")
+
+        # 6. Audit logging
+        try:
+            from app.services.audit_service import audit_service
+            audit_service.record_event(
+                severity="INFO",
+                category="TRAINING",
+                message=f"Model evaluation executed for '{filename}': Accuracy {(metrics.get('accuracy', 0)*100):.2f}%, Macro F1 {(metrics.get('macro_f1', 0)*100):.2f}% on {metrics.get('total_samples', 0)} samples.",
+                component="MLService",
+                details={
+                    "eval_id": eval_id,
+                    "filename": filename,
+                    "accuracy": metrics.get("accuracy"),
+                    "macro_f1": metrics.get("macro_f1"),
+                    "weighted_f1": metrics.get("weighted_f1"),
+                    "false_positive_rate": metrics.get("false_positive_rate"),
+                    "false_negative_rate": metrics.get("false_negative_rate"),
+                    "total_samples": metrics.get("total_samples"),
+                },
+            )
+        except Exception:
+            pass
+
+        return metrics
+
+    def list_saved_evaluations(self) -> List[Dict[str, Any]]:
+        """Lists persisted evaluation runs from storage/evaluations/ ordered by timestamp descending."""
+        evaluations: List[Dict[str, Any]] = []
+        if not settings.EVALUATIONS_DIR.exists():
+            return evaluations
+
+        for file_path in settings.EVALUATIONS_DIR.glob("*.json"):
+            try:
+                data = json.loads(file_path.read_text())
+                if isinstance(data, dict) and "accuracy" in data:
+                    evaluations.append(data)
+            except Exception as exc:
+                logger.debug(f"Could not read evaluation file {file_path}: {exc}")
+
+        # Sort descending by evaluated_at or id
+        evaluations.sort(
+            key=lambda x: str(x.get("evaluated_at") or x.get("evaluatedAt") or x.get("id", "")),
+            reverse=True,
+        )
+        return evaluations
+
+    def get_saved_evaluation(self, eval_id: str) -> Optional[Dict[str, Any]]:
+        """Loads a specific evaluation run by ID from disk."""
+        eval_path = settings.EVALUATIONS_DIR / f"{eval_id}.json"
+        if eval_path.exists():
+            try:
+                return json.loads(eval_path.read_text())
+            except Exception as exc:
+                logger.error(f"Error reading evaluation {eval_id}: {exc}")
+        return None
 
     def get_dataset_evaluation(self, dataset_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves stored evaluation for a dataset from memory or local cache."""

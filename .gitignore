@@ -11,9 +11,12 @@ __pycache__/
 *.env
 .venv/
 env/
+
 venv/
 backend/storage/processed/
 backend/storage/fl_runs/
+backend/storage/*.sqlite3*
+backend/storage/*.db
 
 # IDE / System
 .vscode/

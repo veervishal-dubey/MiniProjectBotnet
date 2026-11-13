@@ -1,0 +1,6 @@
+frame.time,ip.src_host,ip.dst_host,arp.opcode,arp.hw.size,icmp.checksum,icmp.seq_le,http.response,http.tls_version,tcp.ack,tcp.connection.fin,tcp.flags,tcp.len,tcp.seq,udp.port,udp.stream,mqtt.topic,Attack_label,Attack_type
+1648028000.100,192.168.0.128,192.168.0.1,0,0,0,0,200,0,1024,0,24,1460,4820,0,0,,0,Normal
+1648028001.200,192.168.0.150,192.168.0.1,0,0,0,0,0,0,0,0,2,0,100,0,0,,1,DDoS_TCP
+1648028002.300,192.168.0.151,192.168.0.1,0,0,0,0,0,0,0,0,0,512,0,53,12,,1,DDoS_UDP
+1648028003.400,192.168.0.160,192.168.0.50,0,0,0,0,0,0,2048,1,17,256,12000,0,0,factory/sensor1,1,Ransomware
+1648028004.500,192.168.0.165,192.168.0.80,0,0,0,0,404,0,4096,0,24,1024,8500,0,0,,1,Vulnerability_scanner

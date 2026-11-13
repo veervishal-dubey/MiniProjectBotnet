@@ -5,6 +5,8 @@ from app.api.routes.preprocessing import router as preprocessing_router
 from app.api.routes.models import router as models_router
 from app.api.routes.federated import router as federated_router
 from app.api.routes.evaluation import router as evaluation_router
+from app.api.routes.logs import router as logs_router
+from app.api.routes.system import router as system_router
 
 __all__ = [
     "health_router",
@@ -14,4 +16,6 @@ __all__ = [
     "models_router",
     "federated_router",
     "evaluation_router",
+    "logs_router",
+    "system_router",
 ]

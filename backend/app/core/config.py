@@ -43,6 +43,7 @@ class Settings:
     STORAGE_DIR: Path = BASE_DIR / "storage"
     FL_RUNS_DIR: Path = BASE_DIR / "storage" / "fl_runs"
     PROCESSED_CACHE_DIR: Path = BASE_DIR / "storage" / "processed"
+    EVALUATIONS_DIR: Path = BASE_DIR / "storage" / "evaluations"
 
     # ML and Federated Learning configuration paths
     ML_ARTIFACTS_DIR: Path = Path(os.getenv("ML_ARTIFACTS_DIR", str(BASE_DIR.parent / "ml" / "artifacts")))
@@ -65,3 +66,4 @@ settings = Settings()
 settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 settings.PROCESSED_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 settings.FL_RUNS_DIR.mkdir(parents=True, exist_ok=True)
+settings.EVALUATIONS_DIR.mkdir(parents=True, exist_ok=True)

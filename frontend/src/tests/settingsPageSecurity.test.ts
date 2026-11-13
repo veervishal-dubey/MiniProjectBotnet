@@ -124,8 +124,13 @@ test('SettingsPage.tsx does not contain misleading Phase 1 browser simulation te
   );
   assert.strictEqual(
     content.includes('pending teammate implementation and integration'),
+    false,
+    'Must NOT contain stale pending teammate implementation message'
+  );
+  assert.strictEqual(
+    content.includes('Architecture Status: End-to-end integrated'),
     true,
-    'Must clearly indicate training integration is pending'
+    'Must display real integrated architecture status'
   );
 });
 
